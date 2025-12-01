@@ -7,20 +7,18 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 from app.services.imagen_service import ImagenService
 
-def test_imagen_basic():
+def test_imagen_basic(method="imagen"):
     """기본 Imagen 테스트"""
     
     print("🔧 Imagen 서비스 초기화...")
     
-    # ⚠️ 경로 수정 필요!
     imagen = ImagenService(
         project_id="alan-document-lab",
-        credentials_path="./vertex-ai-service-account.json"  # 실제 경로로 수정
+        credentials_path="./vertex-ai-service-account.json"
     )
     
     print("✅ 초기화 완료!\n")
     
-    # 테스트 토픽
     topic = "AI 연구의 최신 동향"
     description = "대규모 언어 모델과 Transformer 아키텍처의 발전"
     keywords = ["AI", "연구", "LLM", "Transformer"]
@@ -28,47 +26,22 @@ def test_imagen_basic():
     print(f"📌 토픽: {topic}")
     print(f"📝 설명: {description}\n")
     
-    # 이미지 생성
     print("🎨 이미지 생성 중...\n")
     
     result = imagen.generate_topic_image(
         topic=topic,
         description=description,
         keywords=keywords,
-        style="abstract",  # abstract, technical, illustration, photo
-        output_dir="./output_images"  # 출력 폴더
+        style="abstract",
+        method=method,
+        output_dir="./output_images"
     )
     
     print(f"\n✅ 이미지 생성 완료!")
     print(f"📁 저장 위치: {result['image_path']}")
     print(f"📝 Imagen 프롬프트: {result['annotation']['imagen_prompt']}")
 
-def test_multiple_styles():
-    """여러 스타일 테스트"""
-    
-    imagen = ImagenService(
-        project_id="neat-shell-478809-u2",
-        credentials_path="./vertex-ai-service-account.json"
-    )
-    
-    styles = ["abstract", "technical", "illustration"]
-    
-    for style in styles:
-        print(f"\n{'='*60}")
-        print(f"🎨 스타일: {style}")
-        print(f"{'='*60}\n")
-        
-        result = imagen.generate_topic_image(
-            topic="AI 연구",
-            description="인공지능 연구의 발전",
-            keywords=["AI", "연구"],
-            style=style,
-            output_dir="./output_images"
-        )
-        
-        print(f"✅ 저장: {result['image_path']}")
-
-def test_various_topics():
+def test_various_topics(method="imagen"):
     """다양한 토픽과 설명 길이 테스트"""
     
     imagen = ImagenService(
@@ -76,7 +49,6 @@ def test_various_topics():
         credentials_path="./vertex-ai-service-account.json"
     )
     
-    # 테스트 케이스들
     test_cases = [
         {
             "name": "간단한 주제",
@@ -141,13 +113,12 @@ def test_various_topics():
                 description=test_case["description"],
                 keywords=test_case["keywords"],
                 style=test_case["style"],
+                method=method,
                 output_dir="./output_images"
             )
             
             print(f"\n✅ 성공!")
             print(f"📁 저장: {result['image_path']}")
-
-            time.sleep(3)  # 3초 대기 ⭐
             
         except Exception as e:
             print(f"\n❌ 실패: {str(e)}")
@@ -155,7 +126,7 @@ def test_various_topics():
         print()
 
 
-def test_all_styles_same_topic():
+def test_all_styles_same_topic(method="imagen"):
     """같은 토픽으로 모든 스타일 테스트"""
     
     imagen = ImagenService(
@@ -182,10 +153,11 @@ def test_all_styles_same_topic():
         
         try:
             result = imagen.generate_topic_image(
-                topic=f"{topic}_{style}",  # 파일명 구분
+                topic=f"{topic}_{style}",
                 description=description,
                 keywords=keywords,
                 style=style,
+                method=method,
                 output_dir="./output_images"
             )
             
@@ -194,10 +166,8 @@ def test_all_styles_same_topic():
         except Exception as e:
             print(f"❌ 실패: {str(e)}")
 
-        time.sleep(3)  # 3초 대기 ⭐
 
-
-def test_edge_cases():
+def test_edge_cases(method="imagen"):
     """엣지 케이스 테스트"""
     
     imagen = ImagenService(
@@ -242,6 +212,7 @@ def test_edge_cases():
                 description=test_case["description"],
                 keywords=test_case["keywords"],
                 style=test_case["style"],
+                method=method,
                 output_dir="./output_images"
             )
             
@@ -250,40 +221,157 @@ def test_edge_cases():
         except Exception as e:
             print(f"❌ 실패: {str(e)}")
 
-        time.sleep(3)  # 3초 대기 ⭐
+
+def test_scene_illustrations(method="imagen"):
+    """구체적인 장면 일러스트 테스트"""
+    
+    imagen = ImagenService(
+        project_id="alan-document-lab",
+        credentials_path="./vertex-ai-service-account.json"
+    )
+    
+    scene_cases = [
+        {
+            "name": "신데렐라 - 구박받는 장면",
+            "topic": "신데렐라 이야기",
+            "description": "신데렐라가 계모와 의붓언니들에게 집안일을 강요당하며 구박받는 장면. 낡은 옷을 입은 신데렐라가 바닥을 닦고 있고, 화려한 드레스를 입은 언니들이 비웃으며 서있다. 어두운 부엌 배경.",
+            "keywords": ["신데렐라", "동화", "구박", "청소"],
+            "style": "scene"
+        },
+        {
+            "name": "AI 연구자 - 브레인스토밍",
+            "topic": "AI 연구실의 하루",
+            "description": "화이트보드 앞에서 열띤 토론을 하는 AI 연구원들. 복잡한 수식과 신경망 다이어그램이 그려진 화이트보드, 노트북들, 커피잔들이 놓인 책상. 밤늦은 연구실의 분위기.",
+            "keywords": ["연구", "토론", "AI", "연구실"],
+            "style": "scene"
+        },
+        {
+            "name": "데이터 과학자 - 문제 해결",
+            "topic": "버그를 찾는 순간",
+            "description": "여러 모니터 앞에 앉은 개발자가 마침내 버그를 발견하고 환호하는 장면. 복잡한 코드가 가득한 화면들, 에너지 드링크 캔들, 어질러진 책상. 새벽의 사무실.",
+            "keywords": ["개발자", "디버깅", "성공", "코딩"],
+            "style": "scene"
+        },
+        {
+            "name": "로봇과 인간 - 협업",
+            "topic": "미래의 협업",
+            "description": "현대적인 사무실에서 휴머노이드 로봇과 인간 직원이 함께 회의하는 장면. 홀로그램 프로젝션으로 데이터를 공유하며 대화하고 있다. 밝고 미래적인 분위기.",
+            "keywords": ["로봇", "인간", "협업", "미래"],
+            "style": "scene"
+        },
+        {
+            "name": "팟캐스트 녹음",
+            "topic": "팟캐스트 녹음실",
+            "description": "방음 부스 안에서 마이크 앞에 앉아 진지하게 대화하는 두 명의 호스트. 헤드폰을 쓰고 열정적으로 제스처를 취하며 이야기 중. 따뜻한 조명의 스튜디오.",
+            "keywords": ["팟캐스트", "녹음", "대화", "스튜디오"],
+            "style": "scene"
+        }
+    ]
+    
+    print("\n" + "="*60)
+    print("장면 일러스트 테스트")
+    print("="*60)
+    
+    for i, test_case in enumerate(scene_cases, 1):
+        print(f"\n{'='*60}")
+        print(f"[{i}/{len(scene_cases)}] {test_case['name']}")
+        print(f"{'='*60}")
+        print(f"📌 토픽: {test_case['topic']}")
+        print(f"📝 장면:\n{test_case['description']}")
+        
+        try:
+            result = imagen.generate_topic_image(
+                topic=test_case["topic"],
+                description=test_case["description"],
+                keywords=test_case["keywords"],
+                style=test_case["style"],
+                method=method,
+                output_dir="./output_images"
+            )
+            
+            print(f"\n✅ 성공!")
+            print(f"📁 저장: {result['image_path']}")
+            
+        except Exception as e:
+            print(f"\n❌ 실패: {str(e)}")
+
 
 if __name__ == "__main__":
     print("="*60)
     print("Imagen API 종합 테스트")
     print("="*60 + "\n")
     
-    # 출력 폴더 생성
     os.makedirs("./output_images", exist_ok=True)
     
-    # 선택: 어떤 테스트를 실행할까요?
+    # 1단계: 생성 방식 선택
+    print("🎨 이미지 생성 방식 선택:")
+    print("1. Imagen (Google Imagen 3.0)")
+    print("2. Gemini (나노바나나 🍌)")
+    print("3. 둘 다 비교")
+    
+    method_choice = input("\n번호 입력 (1-3): ").strip()
+    
+    if method_choice == "1":
+        selected_method = "imagen"
+        print("\n✅ Imagen 방식 선택됨\n")
+    elif method_choice == "2":
+        selected_method = "gemini"
+        print("\n✅ Gemini 나노바나나 🍌 방식 선택됨\n")
+    elif method_choice == "3":
+        selected_method = "both"
+        print("\n✅ 둘 다 비교 모드\n")
+    else:
+        print("❌ 잘못된 입력")
+        exit()
+    
+    # 2단계: 테스트 선택
     print("테스트 선택:")
     print("1. 기본 테스트 (1개)")
     print("2. 다양한 토픽 테스트 (6개)")
     print("3. 같은 토픽, 다양한 스타일 (4개)")
     print("4. 엣지 케이스 테스트 (3개)")
     print("5. 전체 테스트 (14개)")
+    print("6. 장면 일러스트 테스트 (5개)")
     
-    choice = input("\n번호 입력 (1-5): ").strip()
+    test_choice = input("\n번호 입력 (1-6): ").strip()
     
-    if choice == "1":
-        test_imagen_basic()
-    elif choice == "2":
-        test_various_topics()
-    elif choice == "3":
-        test_all_styles_same_topic()
-    elif choice == "4":
-        test_edge_cases()
-    elif choice == "5":
+    # 테스트 실행
+    def run_test(test_func, method):
+        """선택된 방식으로 테스트 실행"""
+        if method == "both":
+            # Imagen으로 실행
+            print("\n" + "="*60)
+            print("🎨 Imagen 방식으로 실행")
+            print("="*60)
+            test_func(method="imagen")
+            
+            time.sleep(3)
+            
+            # Gemini로 실행
+            print("\n" + "="*60)
+            print("🍌 Gemini 나노바나나 방식으로 실행")
+            print("="*60)
+            test_func(method="gemini")
+        else:
+            test_func(method=method)
+    
+    # 선택에 따라 실행
+    if test_choice == "1":
+        run_test(test_imagen_basic, selected_method)
+    elif test_choice == "2":
+        run_test(test_various_topics, selected_method)
+    elif test_choice == "3":
+        run_test(test_all_styles_same_topic, selected_method)
+    elif test_choice == "4":
+        run_test(test_edge_cases, selected_method)
+    elif test_choice == "5":
         print("\n🚀 전체 테스트 시작!\n")
-        test_imagen_basic()
-        test_various_topics()
-        test_all_styles_same_topic()
-        test_edge_cases()
+        run_test(test_imagen_basic, selected_method)
+        run_test(test_various_topics, selected_method)
+        run_test(test_all_styles_same_topic, selected_method)
+        run_test(test_edge_cases, selected_method)
+    elif test_choice == "6":
+        run_test(test_scene_illustrations, selected_method)
     else:
         print("❌ 잘못된 입력입니다.")
     
