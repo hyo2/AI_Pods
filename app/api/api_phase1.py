@@ -33,7 +33,7 @@ class AnalysisRequest(BaseModel):
     """문서 분석 요청"""
     sources: List[TextSourceRequest] = Field(..., description="분석할 문서 리스트")
     model_name: Optional[str] = Field(
-        "gemini-2.0-flash-exp", 
+        "gemini-2.5-flash", 
         description="사용할 Gemini 모델"
     )
     generation_config: Optional[Dict[str, Any]] = Field(
@@ -196,7 +196,7 @@ async def analyze_documents(request: AnalysisRequest):
 @app.post("/api/v1/analyze/quick")
 async def quick_analyze(
     content: str = Body(..., embed=True),
-    model_name: str = Body("gemini-2.0-flash-exp", embed=True)
+    model_name: str = Body("gemini-2.5-flash", embed=True)
 ):
     """
     빠른 단일 문서 분석

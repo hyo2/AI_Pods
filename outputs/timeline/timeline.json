@@ -1,0 +1,44 @@
+[
+  {
+    "timestamp": "00:00:48",
+    "image_id": "img_001",
+    "duration": 30,
+    "end_timestamp": "00:01:18"
+  },
+  {
+    "timestamp": "00:01:48",
+    "image_id": "img_002",
+    "duration": 25,
+    "end_timestamp": "00:02:13"
+  },
+  {
+    "timestamp": "00:01:48",
+    "image_id": "img_003",
+    "duration": 25,
+    "end_timestamp": "00:02:13"
+  },
+  {
+    "timestamp": "00:02:43",
+    "image_id": "img_004",
+    "duration": 30,
+    "end_timestamp": "00:03:13"
+  },
+  {
+    "timestamp": "00:03:18",
+    "image_id": "img_005",
+    "duration": 25,
+    "end_timestamp": "00:03:43"
+  },
+  {
+    "timestamp": "00:03:49",
+    "image_id": "img_006",
+    "duration": 30,
+    "end_timestamp": "00:04:19"
+  },
+  {
+    "timestamp": "00:05:35",
+    "image_id": "img_007",
+    "duration": 30,
+    "end_timestamp": "00:06:05"
+  }
+]

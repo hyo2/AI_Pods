@@ -28,7 +28,7 @@ class DocumentToImagePipeline:
     def __init__(
         self,
         output_dir: str = "./pipeline_output",
-        analysis_model: str = "gemini-2.0-flash-exp",
+        analysis_model: str = "gemini-2.5-flash",
         topic_model: str = "gemini-2.5-flash",
         image_default_method: str = "gemini",
         credentials_path: str = "./vertex-ai-service-account.json"
@@ -181,11 +181,19 @@ class DocumentToImagePipeline:
         
         if not images:
             print("⚠️  이미지가 생성되지 않았습니다.")
+            
+            paths = {
+                "analysis_json": os.path.join(self.output_dir, "json", "01_analysis.json") if save_intermediate else None,
+                "topics_json": os.path.join(self.output_dir, "json", "02_topics.json") if save_intermediate else None,
+                "images_json": None,
+                "gallery_html": None
+            }
+            
             return {
                 "analysis": analysis_result,
                 "topics": topics,
                 "images": [],
-                "paths": {}
+                "paths": paths
             }
         
         # 이미지 요약 출력

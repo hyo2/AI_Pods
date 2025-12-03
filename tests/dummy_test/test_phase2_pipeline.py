@@ -5,6 +5,7 @@ Phase 2 통합 테스트: 텍스트 → 이미지 전체 파이프라인
 import sys
 import os
 from pathlib import Path
+from typing import Dict, Any
 
 sys.path.insert(0, os.path.abspath('.'))
 
@@ -106,6 +107,19 @@ AI 기술이 발전하면서 윤리적 문제가 대두되고 있습니다.
 # 테스트 함수들
 # ============================================================================
 
+def print_pipeline_result(result: Dict[str, Any]):
+    """파이프라인 결과를 안전하게 출력"""
+    print(f"\n✅ 완료!")
+    print(f"   토픽: {len(result.get('topics', []))}개")
+    print(f"   이미지: {len(result.get('images', []))}개")
+    
+    gallery_path = result.get('paths', {}).get('gallery_html')
+    if gallery_path:
+        print(f"   갤러리: {gallery_path}")
+    else:
+        print(f"   ⚠️  이미지가 생성되지 않아 갤러리를 만들 수 없습니다.")
+
+
 def test_quick_pipeline():
     """빠른 파이프라인 테스트"""
     print("\n" + "="*80)
@@ -118,9 +132,7 @@ def test_quick_pipeline():
         generation_strategy="fast"  # Gemini만 사용
     )
     
-    print(f"\n✅ 완료!")
-    print(f"   이미지: {len(result['images'])}개")
-    print(f"   갤러리: {result['paths']['gallery_html']}")
+    print_pipeline_result(result)
 
 
 def test_full_pipeline():
@@ -154,10 +166,7 @@ def test_full_pipeline():
         generation_strategy="auto"
     )
     
-    print(f"\n✅ 완료!")
-    print(f"   토픽: {len(result['topics'])}개")
-    print(f"   이미지: {len(result['images'])}개")
-    print(f"   갤러리: {result['paths']['gallery_html']}")
+    print_pipeline_result(result)
 
 
 def test_batch_pipeline():
@@ -172,10 +181,7 @@ def test_batch_pipeline():
         generation_strategy="hybrid"  # 중요도에 따라 혼합
     )
     
-    print(f"\n✅ 완료!")
-    print(f"   토픽: {len(result['topics'])}개")
-    print(f"   이미지: {len(result['images'])}개")
-    print(f"   갤러리: {result['paths']['gallery_html']}")
+    print_pipeline_result(result)
 
 
 def test_custom_text():
@@ -225,10 +231,7 @@ def test_custom_text():
         generation_strategy=strategy
     )
     
-    print(f"\n✅ 완료!")
-    print(f"   토픽: {len(result['topics'])}개")
-    print(f"   이미지: {len(result['images'])}개")
-    print(f"   갤러리: {result['paths']['gallery_html']}")
+    print_pipeline_result(result)
 
 
 def test_strategy_comparison():

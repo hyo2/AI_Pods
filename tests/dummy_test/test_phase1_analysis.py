@@ -122,7 +122,7 @@ def test_single_document():
     print("="*80)
     
     # 분석 노드 초기화
-    analyzer = DocumentAnalysisNode(model_name="gemini-2.0-flash-exp")
+    analyzer = DocumentAnalysisNode(model_name="gemini-2.5-flash")
     
     # 단일 문서 생성
     source = create_source_from_text(SAMPLE_TEXT_1, "ai_technology_overview")
@@ -152,7 +152,7 @@ def test_multi_documents():
     print("="*80)
     
     # 분석 노드 초기화
-    analyzer = DocumentAnalysisNode(model_name="gemini-2.0-flash-exp")
+    analyzer = DocumentAnalysisNode(model_name="gemini-2.5-flash")
     
     # 여러 문서 생성
     sources = [
@@ -203,7 +203,7 @@ def test_custom_text():
         custom_text = SAMPLE_TEXT_1
     
     # 분석 노드 초기화
-    analyzer = DocumentAnalysisNode(model_name="gemini-2.0-flash-exp")
+    analyzer = DocumentAnalysisNode(model_name="gemini-2.5-flash")
     
     # 문서 생성
     source = create_source_from_text(custom_text, "custom_input")
@@ -233,7 +233,7 @@ def test_langgraph_node():
     print("="*80)
     
     # 분석 노드 초기화
-    analyzer = DocumentAnalysisNode(model_name="gemini-2.0-flash-exp")
+    analyzer = DocumentAnalysisNode(model_name="gemini-2.5-flash")
     
     # State 준비
     state = {
@@ -268,7 +268,7 @@ def test_edge_cases():
     print("🧪 테스트 5: 엣지 케이스")
     print("="*80)
     
-    analyzer = DocumentAnalysisNode(model_name="gemini-2.0-flash-exp")
+    analyzer = DocumentAnalysisNode(model_name="gemini-2.5-flash")
     
     # 케이스 1: 매우 짧은 텍스트
     print("\n--- 케이스 1: 매우 짧은 텍스트 ---")

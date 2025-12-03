@@ -137,7 +137,7 @@ class DocumentAnalysisNode:
 
 분석을 시작하세요."""
     
-    def __init__(self, model_name: str = "gemini-2.0-flash-exp"):
+    def __init__(self, model_name: str = "gemini-2.5-flash"):
         """
         Args:
             model_name: 사용할 Gemini 모델

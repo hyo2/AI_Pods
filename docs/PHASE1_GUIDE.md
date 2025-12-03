@@ -177,7 +177,7 @@ from app.nodes.document_analysis_node import (
 )
 
 # 1. 노드 초기화
-analyzer = DocumentAnalysisNode(model_name="gemini-2.0-flash-exp")
+analyzer = DocumentAnalysisNode(model_name="gemini-2.5-flash")
 
 # 2. 문서 생성
 sources = [
@@ -225,7 +225,7 @@ payload = {
             "doc_type": "text"
         }
     ],
-    "model_name": "gemini-2.0-flash-exp"
+    "model_name": "gemini-2.5-flash"
 }
 
 # 2. API 호출
@@ -325,7 +325,7 @@ print(result['analysis_result'])
     },
     "metadata": {
         "source_count": 2,
-        "model": "gemini-2.0-flash-exp",
+        "model": "gemini-2.5-flash",
         "raw_output_length": 5000,
         "raw_output": "[Gemini 전체 원본 출력]"
     }

@@ -23,105 +23,80 @@ class ImageTopic:
 class TopicExtractionNode:
     """요약 결과에서 이미지 생성용 토픽 추출"""
     
-    # 토픽 추출 프롬프트
+    # 토픽 추출 프롬프트 (스마트 컨텍스트 버전)
     TOPIC_EXTRACTION_PROMPT = """당신은 팟캐스트 비디오 제작을 위한 이미지 토픽 추출 전문가입니다.
 
-문서 분석 결과가 주어지면, **비디오 오버레이용 이미지를 생성하기 위한 토픽**을 추출하세요.
+문서 분석 결과에서 **비디오 오버레이용 이미지 생성을 위한 토픽**을 추출하세요.
 
-[입력]
-문서 분석 요약 결과 (통합 요약 섹션 중심)
+**토픽 추출 기준**:
+✅ 포함: 핵심 개념, 주요 포인트, 구체적 사례, 시각화 가능한 아이디어
+❌ 제외: 추상적 개념, 중복 아이디어, 시각화 불가능한 내용
 
-[목표]
-1. 통합 요약의 각 주요 섹션/개념에서 **시각화할 수 있는 토픽** 추출
-2. 각 토픽은 하나의 이미지로 표현 가능해야 함
-3. 팟캐스트 비디오 오버레이로 사용될 것을 고려
+**토픽 개수**: 5-20개 (내용 길이에 따라 조절)
 
-[토픽 추출 기준]
-✅ 포함해야 할 토픽:
-- 핵심 개념 (예: "AI 기술", "머신러닝 프로세스")
-- 주요 주제 전환점 (예: "역사적 배경", "현재 트렌드", "미래 전망")
-- 중요한 데이터/통계 (시각화 가능한)
-- 구체적인 사례/응용 분야
-- 논의의 핵심 포인트
+**스타일** (각 토픽마다 하나 선택):
+1. **abstract** - 개념적 주제, 배경 이미지
+2. **technical** - 다이어그램, 프로세스, 워크플로우
+3. **illustration** - 설명 그래픽, 비유적 표현
+4. **photo** - 실제 장면, 구체적 예시
+5. **scene** - 스토리텔링 장면, 상황 묘사
 
-❌ 제외해야 할 토픽:
-- 너무 추상적이거나 모호한 개념
-- 시각화가 불가능한 내용
-- 중복되는 개념
+**⚠️ description 작성 규칙** (매우 중요!):
+1. **언어**: 영어로 작성 (이미지 생성 모델 성능 최적화)
+2. **정확한 장면 묘사**: 원본 내용을 정확하고 상세하게 설명 (50-100단어)
+3. **텍스트 제거**: "no text, text-free" 포함
+4. **한국 컨텍스트**: 
+   - ✅ 한국 관련 내용만 "Korean", "Seoul", "in Korea" 추가
+   - ❌ 서양 문화/역사/동화/인명은 그대로 유지
+   
+**한국 컨텍스트 적용 기준**:
+- ✅ 적용: "한국 기업", "서울", "K-pop", "한국 의사", "국내 산업"
+- ❌ 미적용: "신데렐라", "피카소", "파리", "르네상스", "그리스 신화"
 
-[토픽 개수]
-- 최소: 5개
-- 최대: 20개
-- 권장: 분당 1.5개 (10분 콘텐츠 = 15개 토픽)
-- 문서 길이와 복잡도에 따라 조절
+**예시 1 - 한국 내용**:
+{{
+  "title": "AI 헬스케어 혁신",
+  "description": "Modern Korean medical professional using advanced AI diagnostic system in a Seoul hospital, holographic medical displays showing patient data, clean clinical environment, professional Korean doctor, no text, realistic photography style"
+}}
 
-[스타일 선택 기준]
-각 토픽에 가장 적합한 이미지 스타일을 선택하세요:
+**예시 2 - 서양 동화**:
+{{
+  "title": "신데렐라의 변신",
+  "description": "Cinderella's magical transformation scene at midnight, sparkling fairy godmother magic turning pumpkin into golden carriage, glass slippers glowing, enchanted atmosphere with stars and sparkles, classic European fairy tale setting, no text, illustrated storybook style"
+}}
 
-1. **abstract** (추상적 미니멀)
-   - 개념적 주제: "AI의 미래", "디지털 혁신"
-   - 배경/분위기 이미지
-   - 장점: 빠른 생성, 비용 효율적
+**예시 3 - 추상 개념**:
+{{
+  "title": "AI의 미래",
+  "description": "Abstract futuristic visualization of artificial intelligence concept, flowing neural networks and data streams in blue and purple tones, geometric patterns and glowing nodes, minimalist modern design, no text, digital art style"
+}}
 
-2. **technical** (기술 다이어그램)
-   - 프로세스/워크플로우: "머신러닝 파이프라인"
-   - 구조/아키텍처: "신경망 구조"
-   - 장점: 정보 전달력, 교육적
-
-3. **illustration** (창의적 일러스트)
-   - 개념 설명: "딥러닝의 작동 원리"
-   - 비유/은유: "AI를 정원 가꾸기에 비유"
-   - 장점: 친근함, 이해하기 쉬움
-
-4. **photo** (포토리얼리스틱)
-   - 실제 사례: "의료 현장의 AI"
-   - 제품/서비스: "AI 스피커"
-   - 장점: 현실감, 공감대
-
-5. **scene** (장면 일러스트)
-   - 스토리텔링: "연구원이 AI 모델 훈련하는 장면"
-   - 상황 묘사: "미래 도시의 자율주행차"
-   - 장점: 몰입감, 서사
-
-[출력 형식]
-JSON 배열로 출력하세요. 각 토픽은 다음 구조:
-
-```json
+**출력 형식** (JSON만, 마크다운 없이):
 [
   {{
-    "topic_id": "topic_01_opening",
-    "title": "AI 기술의 시작",
-    "description": "인공지능 기술의 역사적 배경과 초기 발전 과정을 나타내는 추상적 시각화",
-    "keywords": ["AI", "history", "technology", "innovation"],
+    "topic_id": "topic_01",
+    "title": "토픽 제목 (한글)",
+    "description": "Detailed scene description in English, specific and visual, 50-100 words, no text",
+    "keywords": ["keyword1", "keyword2", "keyword3"],
     "style": "abstract",
     "importance": 0.9,
-    "context": "오프닝 장면, 전체 내용의 도입부"
-  }},
-  {{
-    "topic_id": "topic_02_ml_process",
-    "title": "머신러닝 프로세스",
-    "description": "데이터 수집, 전처리, 학습, 평가 단계를 보여주는 워크플로우 다이어그램",
-    "keywords": ["machine learning", "process", "workflow", "data"],
-    "style": "technical",
-    "importance": 0.85,
-    "context": "핵심 개념 설명 섹션"
+    "context": "맥락 설명 (한글)"
   }}
 ]
-```
 
-[중요 규칙]
-1. **topic_id는 순서를 나타내는 넘버링 포함** (topic_01, topic_02...)
-2. **description은 이미지 생성 프롬프트의 기반**이 됨 (구체적으로)
-3. **keywords는 5~10개** 정도
-4. **importance는 0.0~1.0** (0.8 이상이 핵심 토픽)
-5. **style은 반드시 5가지 중 하나**: abstract, technical, illustration, photo, scene
-6. **중복 개념은 통합**, 하나의 토픽으로
+**규칙**:
+- topic_id는 순차적 넘버링 (topic_01, topic_02...)
+- description은 원본 내용을 정확히 반영, 구체적으로
+- keywords는 5-10개 (영어)
+- importance는 0.0-1.0 (0.8 이상이 핵심 토픽)
+- style은 반드시: abstract, technical, illustration, photo, scene 중 하나
 
-[분석할 요약 결과]
+**분석할 요약**:
 {summary_content}
 
-위 요약 결과를 분석하여 이미지 토픽을 추출하세요.
-JSON 배열만 출력하세요. 다른 설명은 불필요합니다."""
+위 내용을 분석하여 이미지 토픽을 JSON 배열로 추출하세요. 
+원본 내용의 맥락과 의미를 정확히 보존하세요.
+JSON만 출력하세요."""
 
     def __init__(self, model_name: str = "gemini-2.5-flash"):
         """
@@ -178,12 +153,49 @@ JSON 배열만 출력하세요. 다른 설명은 불필요합니다."""
         config = {
             "temperature": 0.4,  # 적당히 창의적
             "top_p": 0.9,
-            "max_output_tokens": 4096,
+            "max_output_tokens": 8192,  # 토큰 제한 증가 (MAX_TOKENS 에러 방지)
             **generation_config
         }
         
-        response = self.model.generate_content(prompt, generation_config=config)
-        raw_topics = response.text
+        try:
+            response = self.model.generate_content(prompt, generation_config=config)
+            
+            # 응답 확인
+            if not response.candidates:
+                print("⚠️  응답 후보가 없습니다.")
+                return []
+            
+            candidate = response.candidates[0]
+            
+            # finish_reason 확인
+            if candidate.finish_reason != 1:  # 1 = STOP (정상 완료)
+                finish_reason_map = {
+                    2: "MAX_TOKENS",
+                    3: "SAFETY",
+                    4: "RECITATION",
+                    5: "OTHER"
+                }
+                reason = finish_reason_map.get(candidate.finish_reason, "UNKNOWN")
+                print(f"⚠️  비정상 종료: {reason}")
+                
+                if reason == "MAX_TOKENS":
+                    print("💡 토큰 제한 초과 - 프롬프트를 줄이거나 max_output_tokens를 더 늘려보세요")
+                
+                # MAX_TOKENS인 경우 부분 응답이라도 파싱 시도
+                if reason == "MAX_TOKENS" and hasattr(candidate.content, 'parts'):
+                    try:
+                        raw_topics = candidate.content.parts[0].text
+                        print(f"⚠️  부분 응답 사용 시도 ({len(raw_topics)} 문자)")
+                    except:
+                        return []
+                else:
+                    return []
+            else:
+                raw_topics = response.text
+        
+        except Exception as e:
+            print(f"❌ Gemini 호출 실패: {str(e)}")
+            return []
         
         print(f"✅ 토픽 추출 완료")
         
