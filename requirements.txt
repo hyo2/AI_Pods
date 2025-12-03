@@ -5,12 +5,20 @@ langchain-core
 google-cloud-aiplatform
 google-auth
 google-auth-oauthlib
-google-cloud-storage # (선택적: 스토리지 사용 시 필요)
+google-cloud-storage 
 
-requests # HTTP 요청 처리
-httpx # 비동기 HTTP 요청 처리 (orchestrator.py의 Mockup 코드에 있음)
-beautifulsoup4 # 웹 페이지 파싱 (extractors.py)
-python-docx # DOCX 파일 처리 (extractors.py)
-pdfplumber # PDF 파일 처리 (extractors.py)
+requests
+httpx
+beautifulsoup4
+python-docx
+pdfplumber
 
-typing-extensions # TypedDict, Annotated 사용
+typing-extensions
+
+python-dotenv
+supabase
+fastapi
+uvicorn
+pydantic
+python-jose[cryptography]
+python-multipart
