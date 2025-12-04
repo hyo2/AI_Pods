@@ -53,6 +53,7 @@ const GeneratePanel = ({
                   className="absolute top-2 right-2 text-xs text-red-400 hover:text-red-600"
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (!confirm("정말 삭제하시겠습니까?")) return;
                     onDelete(o.id);
                   }}
                 >

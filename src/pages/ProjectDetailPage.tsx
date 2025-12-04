@@ -45,9 +45,7 @@ const ProjectDetailPage = () => {
     }
   }, [outputs]);
 
-  // -------------------------------
-  // ✅ NEW: "processing" output polling
-  // -------------------------------
+  // "processing" output polling
   useEffect(() => {
     const processing = outputs.filter((o) => o.status === "processing");
     if (processing.length === 0) return;
@@ -58,7 +56,7 @@ const ProjectDetailPage = () => {
           const res = await fetch(`${API_BASE_URL}/outputs/${item.id}/status`);
           const data = await res.json();
 
-          // completed → UI 업데이트
+          // completed 시, UI 업데이트
           if (data.status === "completed") {
             setOutputs((prev) =>
               prev.map((o) =>
@@ -73,7 +71,7 @@ const ProjectDetailPage = () => {
             );
           }
 
-          // failed → alert + 목록에서 제거
+          // failed 시, alert 띄우고 목록에서 제거
           if (data.status === "failed") {
             alert(`"${item.title}" 생성 실패: ${data.error_message || ""}`);
 
@@ -93,20 +91,44 @@ const ProjectDetailPage = () => {
     setOutputs((prev) => [newOutput, ...prev]);
   };
 
-  // 모달에서 소스 삭제 시 input 목록에서 제거
-  // input 삭제 처리 해야함
-  const handleDeleteSource = (deletedId: number) => {
-    setInputs((prev) => prev.filter((src) => src.id !== deletedId));
+  // input 목록에서 삭제
+  const handleDeleteSource = async (inputId: number) => {
+    // input 삭제 API 호출
+    try {
+      const res = await fetch(`${API_BASE_URL}/inputs/${inputId}`, {
+        method: "DELETE",
+      });
+
+      if (!res.ok) {
+        throw new Error("삭제 실패");
+      }
+
+      // 프론트에서 삭제
+      setInputs((prev) => prev.filter((src) => src.id !== inputId));
+    } catch (err) {
+      console.error(err);
+      alert("삭제 중 오류가 발생했습니다.");
+    }
   };
 
-  // output 삭제 처리
-  const handleDeleteOutput = async (id: number) => {
-    // 백엔드 API 연결 예정
-    // 일단 로컬 상태에서 삭제만 수행
-    setOutputs((prev) => prev.filter((o) => o.id !== id));
+  // output 목록에서 삭제
+  const handleDeleteOutput = async (outputId: number) => {
+    // output 삭제 API 호출
+    try {
+      const res = await fetch(`${API_BASE_URL}/outputs/${outputId}`, {
+        method: "DELETE",
+      });
 
-    // TODO: 실제 백엔드 삭제 API 연결 후 여기에 추가
-    // await supabase.from("output_contents").delete().eq("id", id);
+      if (!res.ok) {
+        throw new Error("삭제 실패");
+      }
+
+      // 프론트에서 삭제
+      setOutputs((prev) => prev.filter((o) => o.id !== outputId));
+    } catch (err) {
+      console.error(err);
+      alert("삭제 중 오류가 발생했습니다.");
+    }
   };
 
   return (
