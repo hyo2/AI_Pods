@@ -1,11 +1,13 @@
 {
   "podcast_id": "podcast_001",
-  "created_at": "2025-12-03T15:04:06.919001",
+  "created_at": "2025-12-04T10:51:09.406978",
   "content": {
     "total_duration": "06분 20초",
-    "total_scenes": 15,
+    "total_scenes": 20,
     "content_type": "interview",
-    "summary": "본 팟캐스트는 AI 기술을 활용하여 긴 문서를 자동으로 팟캐스트 형태로 변환해주는 기술을 소개합니다. 김철수 게스트는 이 기술이 정보 과부하 시대에 긴 글 읽기의 부담을 줄이고, 정보 접근성을 높여 학습 및 업무 효율성을 향상시킬 수 있다고 설명합니다. 특히 TTS 기술과 구글 제미니 API를 활용하여 두 명의 AI 호스트가 대화하는 듯한 팟캐스트를 생성하는 원리를 강조하며, 한국어 지원 및 사용자 맞춤형 콘텐츠 제공을 목표로 하고 있습니다.",
+    "main_topic": "AI 기술을 활용하여 긴 문서를 자동으로 팟캐스트로 변환해주는 기술 소개 및 활용 방안 논의",
+    "summary": "AI가 긴 문서를 분석하여 팟캐스트를 자동으로 생성하는 기술을 소개하고, 정보 접근성 향상 및 학습 효율 증대 효과를 설명한다.",
+    "detailed_summary": "본 팟캐스트는 AI 기술을 활용하여 긴 문서를 팟캐스트 형태로 자동 변환하는 혁신적인 기술을 소개한다. 정보 과부하 시대에 긴 글 읽기의 부담을 해소하고, 이동 중에도 편리하게 정보를 습득할 수 있도록 돕는 것이 목표이다. 게스트 김철수는 TTS 기술과 구글의 제미니 API를 활용하여 텍스트를 음성으로 변환하고, 두 명의 AI 호스트가 대화하는 방식으로 팟캐스트를 생성하는 원리를 설명한다. 이를 통해 대학원생, 비즈니스 팀장, 뉴스 큐레이터 등 다양한 분야의 전문가들이 정보 접근성을 높이고 업무 효율성을 향상시킬 수 있다고 강조한다. 현재 인물별 목소리 분리 기능에서 오류가 발생하고 있지만, 지속적인 개선을 통해 더욱 완벽한 서비스를 제공할 것을 약속한다.",
     "target_audience": "정보 습득에 어려움을 느끼는 대학원생, 비즈니스 팀장, 뉴스 큐레이터 등 바쁜 현대인",
     "chapters": [
       {
@@ -23,13 +25,13 @@
           "AI 팟캐스트 자동 생성 기술",
           "정보 과부하 시대의 문제점"
         ],
-        "summary": "진행자가 팟캐스트를 소개하고 게스트 김철수를 소개하며, 긴 글 읽기의 부담을 언급하며 AI 기술의 필요성을 제기합니다.",
-        "importance": 0.7,
-        "expected_images": 1
+        "summary": "AI가 팟캐스트를 자동 생성하는 기술을 소개하고, 정보 과부하 시대에 긴 글 읽기의 어려움을 언급한다.",
+        "importance": 0.8,
+        "expected_images": 3
       },
       {
         "id": "ch_02",
-        "title": "기술의 필요성 및 문제 해결",
+        "title": "기술의 필요성 및 해결 과제",
         "start_time": "00:00:48",
         "end_time": "00:01:38",
         "duration": 50,
@@ -41,11 +43,11 @@
         "key_topics": [
           "읽기 피로도",
           "정보 통합의 어려움",
-          "타겟 청중"
+          "타겟 청중의 페인 포인트"
         ],
-        "summary": "게스트는 웹 아티클, PDF 등 다양한 콘텐츠를 읽고 이해하기 어려운 문제점을 지적하며, 대학원생, 비즈니스 팀장, 뉴스 큐레이터 등 정보 소비가 많은 사람들의 어려움을 해결하고자 한다고 설명합니다.",
-        "importance": 0.8,
-        "expected_images": 1
+        "summary": "긴 문서 읽기의 피로도와 정보 통합의 어려움을 지적하며, 대학원생, 비즈니스 팀장, 뉴스 큐레이터 등 타겟 청중의 페인 포인트를 설명한다.",
+        "importance": 0.7,
+        "expected_images": 2
       },
       {
         "id": "ch_03",
@@ -60,13 +62,13 @@
         ],
         "key_topics": [
           "TTS 기술",
-          "Gemini API",
-          "자동 분석 및 통합",
-          "AI 호스트"
+          "Gemini API 활용",
+          "자동 문서 분석 및 통합",
+          "AI 호스트 대화 시스템"
         ],
-        "summary": "게스트는 TTS 기술과 구글 제미니 API를 활용하여 사용자가 제공한 콘텐츠를 자동으로 분석하고 통합하여 두 명의 AI 호스트가 대화하는 팟캐스트를 생성하는 원리를 설명합니다.",
+        "summary": "TTS 기술과 Gemini API를 활용하여 문서를 분석하고, 두 명의 AI 호스트가 대화하는 방식으로 팟캐스트를 생성하는 원리를 설명한다.",
         "importance": 0.9,
-        "expected_images": 2
+        "expected_images": 4
       },
       {
         "id": "ch_04",
@@ -77,56 +79,74 @@
         "scene_ids": [
           "scene_010",
           "scene_011",
-          "scene_012"
+          "scene_012",
+          "scene_013"
         ],
         "key_topics": [
-          "다양한 목소리",
-          "자연어 프롬프트 제어",
-          "LangGraph 워크플로우"
+          "다양한 AI 호스트 목소리",
+          "자연어 프롬프트 기반 음성 제어",
+          "LangGraph 기반 워크플로우 자동화"
         ],
-        "summary": "게스트는 제미니 API의 TTS 기능을 통해 두 명의 화자가 각기 다른 목소리로 대화하는 형태를 구현하며, 목소리 스타일, 억양, 속도, 어조까지 자연어 프롬프트로 제어할 수 있다고 설명합니다. LangGraph 기반의 워크플로우 자동화도 언급합니다.",
-        "importance": 0.85,
-        "expected_images": 2
+        "summary": "Gemini API의 TTS 기능을 활용하여 다양한 목소리를 제공하고, 자연어 프롬프트를 통해 음성 스타일, 억양, 속도 등을 제어하는 방법을 설명한다.",
+        "importance": 0.8,
+        "expected_images": 3
       },
       {
         "id": "ch_05",
-        "title": "기대 효과 및 미래 전망",
+        "title": "기대 효과 및 활용 사례",
         "start_time": "00:03:41",
         "end_time": "00:04:39",
         "duration": 58,
         "scene_ids": [
-          "scene_013",
-          "scene_014"
+          "scene_014",
+          "scene_015",
+          "scene_016"
         ],
         "key_topics": [
           "정보 접근성 향상",
-          "학습 효율성 증대",
+          "학습 효율 증대",
           "업무 생산성 향상",
           "한국어 지원"
         ],
-        "summary": "게스트는 이 기술이 정보 접근성을 높이고, 학습 및 업무 효율성을 향상시킬 수 있다고 강조합니다. 대학원생, 비즈니스 팀장, 뉴스 큐레이터 등의 활용 사례를 제시하며, 한국어 지원을 통해 한국 청취자에게 최적화된 콘텐츠를 제공할 것이라고 밝힙니다.",
+        "summary": "정보 접근성 향상, 학습 효율 증대, 업무 생산성 향상 등 기술의 기대 효과를 설명하고, 대학원생, 비즈니스 팀장, 뉴스 큐레이터의 활용 사례를 제시한다.",
         "importance": 0.8,
-        "expected_images": 1
+        "expected_images": 3
       },
       {
         "id": "ch_06",
-        "title": "개발의 어려움 및 마무리",
+        "title": "기술 개발의 어려움 및 향후 목표",
         "start_time": "00:04:39",
-        "end_time": "00:06:20",
-        "duration": 101,
+        "end_time": "00:05:35",
+        "duration": 56,
         "scene_ids": [
-          "scene_015",
-          "scene_016",
           "scene_017",
-          "scene_018"
+          "scene_018",
+          "scene_019"
         ],
         "key_topics": [
           "인물별 목소리 분리 오류",
-          "지속적인 개선",
-          "미래 콘텐츠 소비 혁명"
+          "안정적인 스크립트 생성 및 TTS 재생",
+          "LangGraph 학습을 통한 AI 에이전트 역량 강화"
         ],
-        "summary": "게스트는 인물별 목소리 분리 기능에서 발생하는 오류를 언급하며, 지속적인 개선을 통해 안정적인 서비스 제공을 목표로 한다고 밝힙니다. 진행자는 AI 기술이 미래 콘텐츠 소비 방식에 혁명을 가져올 것이라고 전망하며 팟캐스트를 마무리합니다.",
+        "summary": "인물별 목소리 분리 기능의 오류를 언급하며, 안정적인 스크립트 생성 및 TTS 재생 기능 제공, LangGraph 학습을 통한 AI 에이전트 역량 강화를 향후 목표로 제시한다.",
         "importance": 0.7,
+        "expected_images": 2
+      },
+      {
+        "id": "ch_07",
+        "title": "마무리",
+        "start_time": "00:05:35",
+        "end_time": "00:06:20",
+        "duration": 45,
+        "scene_ids": [
+          "scene_020"
+        ],
+        "key_topics": [
+          "콘텐츠 소비 방식의 혁명",
+          "지식 습득 방식의 유연성 및 개인화"
+        ],
+        "summary": "AI 기술이 콘텐츠 소비 방식에 혁명을 가져올 것이며, 지식 습득 방식이 더욱 유연하고 개인화될 것이라고 전망하며 마무리한다.",
+        "importance": 0.6,
         "expected_images": 1
       }
     ],
@@ -153,7 +173,7 @@
         "first_appearance": "00:03:18",
         "importance": 0.7,
         "should_visualize": true,
-        "visual_priority": "low"
+        "visual_priority": "medium"
       }
     ],
     "critical_moments": [
@@ -161,25 +181,19 @@
         "timestamp": "00:01:48",
         "scene_id": "scene_008",
         "type": "핵심 기술 도입",
-        "description": "TTS 기술과 구글 제미니 API를 활용한 팟캐스트 생성 원리 소개"
+        "description": "TTS 기술과 구글의 제미니 API를 활용하여 팟캐스트를 생성하는 원리 소개"
       },
       {
-        "timestamp": "00:03:49",
-        "scene_id": "scene_013",
-        "type": "기대 효과",
-        "description": "정보 접근성 향상, 학습 효율성 증대, 업무 생산성 향상 등 기술의 긍정적 영향 제시"
-      },
-      {
-        "timestamp": "00:05:35",
+        "timestamp": "00:04:47",
         "scene_id": "scene_017",
-        "type": "결론",
-        "description": "AI 기술이 미래 콘텐츠 소비 방식에 혁명을 가져올 것이라는 전망"
+        "type": "기술적 문제점 언급",
+        "description": "인물별 목소리 분리 기능에서 오류 발생"
       }
     ]
   },
   "visual": {
     "art_style": "Flat vector illustration",
-    "art_style_description": "Clean and modern flat vector illustrations with simple shapes and clear color separation, optimized for information delivery. Geometric forms and minimalist design principles should be prioritized. Use of gradients is minimal; flat color blocks are preferred. Avoid excessive detail, realistic textures, and complex shadows.",
+    "art_style_description": "Clean and modern flat vector illustrations with simple shapes and clear color separation, optimized for information delivery. Use a consistent style throughout all visuals.",
     "art_style_details": {
       "primary": "Smooth curves and geometric shapes",
       "secondary": "Minimal gradients, flat color blocks",
@@ -195,21 +209,15 @@
     "color_mood": "Bright, friendly, and professional",
     "overall_mood": "Professional and engaging, futuristic yet accessible",
     "emotional_tone": "Optimistic, confident, and educational",
-    "lighting_style": "Bright and uniform lighting, soft shadows, clear color",
+    "lighting_style": "Bright and uniform lighting, soft shadows, clear colors",
     "composition_guidelines": "16:9 aspect ratio, center-focused composition, ample whitespace, clear visual hierarchy",
     "recurring_elements": {
-      "character": null,
+      "character": "Consider a friendly AI assistant character",
       "motifs": [
         "Geometric patterns",
         "Data flow lines"
       ],
       "icons_style": "Rounded corners, filled style"
-    },
-    "composition_rules": {
-      "text_position": "bottom_center",
-      "safe_zone": "bottom 20% of frame",
-      "preference": "Concentrate key visuals at the top, leaving space at the bottom for text overlays",
-      "avoid": "Placing essential elements at the bottom of the screen"
     },
     "reference_style": "NotebookLM Video Overview style, Kurzgesagt educational videos"
   }

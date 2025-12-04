@@ -43,15 +43,6 @@ class ColorPalette:
 
 
 @dataclass
-class CompositionRules:
-    """구도 규칙 (텍스트 오버레이)"""
-    text_position: str          # "bottom_center", "top_left", etc
-    safe_zone: str              # "bottom 25% of frame"
-    preference: str             # "Top-weighted to leave space"
-    avoid: str                  # "Center-heavy compositions"
-
-
-@dataclass
 class GlobalVisualGuidelines:
     """전역 비주얼 가이드라인"""
     art_style: str                      # "Flat isometric illustration"
@@ -64,7 +55,6 @@ class GlobalVisualGuidelines:
     lighting_style: str                 # 조명 스타일
     composition_guidelines: str         # 구도 가이드라인
     recurring_elements: Dict[str, Any]
-    composition_rules: CompositionRules
     reference_style: str
 
 
@@ -109,7 +99,9 @@ class ContentAnalysis:
     total_duration: str
     total_scenes: int
     content_type: str           # educational, news, story, business
-    summary: str
+    main_topic: str             # 주제 (1-2줄, 간결)
+    summary: str                # 한 줄 요약
+    detailed_summary: str       # 상세 요약 (스크립트 길이에 따라 조절)
     target_audience: str
     chapters: List[Chapter]
     key_concepts: List[KeyConcept]
@@ -205,12 +197,6 @@ YouTube 교육 콘텐츠, NotebookLM 스타일 비디오 제작 경험이 풍부
         "motifs": ["기하학적 패턴", "데이터 흐름선"],
         "icons_style": "둥근 모서리, 채워진 스타일"
     }},
-    "composition_rules": {{
-        "text_position": "bottom_center",
-        "safe_zone": "bottom 20% of frame",
-        "preference": "상단 집중 구도로 텍스트 공간 확보",
-        "avoid": "화면 하단에 중요 요소 배치"
-    }},
     "reference_style": "NotebookLM Video Overview style, Kurzgesagt educational videos"
 }}
 ```
@@ -219,7 +205,7 @@ YouTube 교육 콘텐츠, NotebookLM 스타일 비디오 제작 경험이 풍부
 - **단일 아트 스타일 선택** (스크립트 콘텐츠에 가장 적합한 것)
 - 색상은 반드시 HEX 코드로 (#RRGGBB)
 - art_style_description은 나노바나나가 이해하기 쉽게 구체적으로
-- composition_rules는 필수 (텍스트 오버레이 공간)
+- **🔴 CRITICAL: 이미지 내 모든 텍스트/라벨/다이어그램은 영어로만 표기** (한글 텍스트는 렌더링 품질 저하)
 - 모든 필드를 빠짐없이 작성
 - JSON만 출력 (다른 설명 없이)
 """
@@ -233,10 +219,12 @@ YouTube 교육 콘텐츠, NotebookLM 스타일 비디오 제작 경험이 풍부
 {script}
 
 **분석 목표:**
-1. 의미 단위로 챕터 분할 (보통 5-8개)
-2. 각 챕터의 핵심 주제 파악
-3. 시각화가 필요한 핵심 개념 추출
-4. 임계 순간 (Critical Moments) 찾기
+1. 팟캐스트의 핵심 주제 파악
+2. 전체 내용 요약 (길이에 따라 적절히 조절)
+3. 의미 단위로 챕터 분할 (보통 5-8개)
+4. 각 챕터의 핵심 주제 파악
+5. 시각화가 필요한 핵심 개념 추출
+6. 임계 순간 (Critical Moments) 찾기
 
 **다음 정보를 JSON으로 생성하세요:**
 
@@ -245,7 +233,11 @@ YouTube 교육 콘텐츠, NotebookLM 스타일 비디오 제작 경험이 풍부
     "total_duration": "X분 Y초",
     "total_scenes": 숫자,
     "content_type": "educational/news/story/business/interview 중 선택",
-    "summary": "전체 요약 (3-5문장)",
+    
+    "main_topic": "팟캐스트의 핵심 주제 (1-2줄, 간결하게)",
+    "summary": "한 줄 요약 (50-80자)",
+    "detailed_summary": "상세 요약 (스크립트 길이에 따라 조절: 5분 미만=2-3문장, 5-10분=3-5문장, 10-20분=5-7문장, 20분 이상=7-10문장)",
+    
     "target_audience": "타겟 청중 설명",
     
     "chapters": [
@@ -286,6 +278,9 @@ YouTube 교육 콘텐츠, NotebookLM 스타일 비디오 제작 경험이 풍부
 ```
 
 **주의:**
+- main_topic: 이 팟캐스트가 무엇에 관한 것인지 명확하게
+- summary: 핵심만 간결하게 한 줄로
+- detailed_summary: 전체 흐름을 상세히, 길이는 팟캐스트 길이에 비례
 - 챕터는 의미 단위로 (3-5개 장면씩)
 - expected_images는 챕터 중요도에 비례
 - key_concepts는 시각화 가능한 것만
@@ -411,7 +406,6 @@ YouTube 교육 콘텐츠, NotebookLM 스타일 비디오 제작 경험이 풍부
                     lighting_style=data.get("lighting_style", "밝고 균일한 조명"),
                     composition_guidelines=data.get("composition_guidelines", "16:9 비율"),
                     recurring_elements=data["recurring_elements"],
-                    composition_rules=CompositionRules(**data["composition_rules"]),
                     reference_style=data["reference_style"]
                 )
                 
@@ -493,7 +487,9 @@ YouTube 교육 콘텐츠, NotebookLM 스타일 비디오 제작 경험이 풍부
                     total_duration=data["total_duration"],
                     total_scenes=data["total_scenes"],
                     content_type=data["content_type"],
+                    main_topic=data["main_topic"],
                     summary=data["summary"],
+                    detailed_summary=data["detailed_summary"],
                     target_audience=data["target_audience"],
                     chapters=[Chapter(**ch) for ch in data["chapters"]],
                     key_concepts=[KeyConcept(**kc) for kc in data["key_concepts"]],
@@ -573,14 +569,14 @@ YouTube 교육 콘텐츠, NotebookLM 스타일 비디오 제작 경험이 풍부
         print(f"  Art Style: {visual.art_style}")
         print(f"  Primary Color: {visual.color_palette.primary}")
         print(f"  Mood: {visual.overall_mood}")
-        print(f"  Text Position: {visual.composition_rules.text_position}")
-        print(f"  Safe Zone: {visual.composition_rules.safe_zone}")
     
     def _print_content_summary(self, content: ContentAnalysis):
         """Content Analysis 요약 출력"""
         print(f"\n📊 Content Analysis:")
         print(f"  Duration: {content.total_duration}")
         print(f"  Type: {content.content_type}")
+        print(f"  Topic: {content.main_topic}")
+        print(f"  Summary: {content.summary}")
         print(f"  Chapters: {len(content.chapters)}개")
         print(f"  Key Concepts: {len(content.key_concepts)}개")
         print(f"  Critical Moments: {len(content.critical_moments)}개")
@@ -637,7 +633,15 @@ def print_metadata_summary(metadata: PodcastMetadata):
     print(f"\n📊 콘텐츠 정보:")
     print(f"  타입: {metadata.content.content_type}")
     print(f"  길이: {metadata.content.total_duration}")
-    print(f"  요약: {metadata.content.summary[:100]}...")
+    print(f"  주제: {metadata.content.main_topic}")
+    print(f"  요약: {metadata.content.summary}")
+    
+    print(f"\n📝 상세 요약:")
+    # 상세 요약을 적절히 줄바꿈해서 출력
+    summary_lines = metadata.content.detailed_summary.split('. ')
+    for line in summary_lines:
+        if line.strip():
+            print(f"  {line.strip()}{'.' if not line.endswith('.') else ''}")
     
     print(f"\n📚 챕터: {len(metadata.content.chapters)}개")
     for ch in metadata.content.chapters:
@@ -653,7 +657,6 @@ def print_metadata_summary(metadata: PodcastMetadata):
     print(f"  아트: {metadata.visual.art_style}")
     print(f"  주 색상: {metadata.visual.color_palette.primary}")
     print(f"  무드: {metadata.visual.overall_mood}")
-    print(f"  텍스트 위치: {metadata.visual.composition_rules.text_position}")
 
 
 if __name__ == "__main__":

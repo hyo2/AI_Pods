@@ -17,11 +17,6 @@
       "filename": "img_003.png"
     },
     {
-      "image_id": "img_004",
-      "path": "outputs/images\\img_004.png",
-      "filename": "img_004.png"
-    },
-    {
       "image_id": "img_005",
       "path": "outputs/images\\img_005.png",
       "filename": "img_005.png"
@@ -35,6 +30,11 @@
       "image_id": "img_007",
       "path": "outputs/images\\img_007.png",
       "filename": "img_007.png"
+    },
+    {
+      "image_id": "img_008",
+      "path": "outputs/images\\img_008.png",
+      "filename": "img_008.png"
     }
   ]
 }
