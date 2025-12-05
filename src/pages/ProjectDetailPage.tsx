@@ -155,7 +155,7 @@ const ProjectDetailPage = () => {
 
       <div className="flex w-full h-full bg-gray-50">
         {/* LEFT: Podcast Content Viewer */}
-        <div className="flex-1 pr-6 pt-4 overflow-y-auto">
+        <div className="flex-1 pl-4 pb-4 pr-6 overflow-y-auto">
           {selectedOutputId ? (
             <PodcastContents outputId={selectedOutputId} />
           ) : (
@@ -164,8 +164,8 @@ const ProjectDetailPage = () => {
         </div>
 
         {/* RIGHT: 생성된 output 목록 패널 */}
-        <div className="w-[340px] bg-white border-l shadow-lg p-4 flex flex-col">
-          <div className="flex justify-end mb-4">
+        <div className="w-[340px] bg-white border-l shadow-lg pl-4 pr-4 pb-4 flex flex-col">
+          <div className="flex justify-end mb-4 mt-4">
             <button
               onClick={() => setIsSourceModalOpen(true)}
               className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"

@@ -39,6 +39,7 @@ const DocumentsPage = () => {
   const [outputName, setOutputName] = useState("");
 
   const [errorMessage, setErrorMessage] = useState("");
+  const [isDragging, setIsDragging] = useState(false);
 
   // TTS(host) 목소리 목록
   const [hostList, setHostList] = useState<{ id: string; name: string }[]>([]);
@@ -54,10 +55,75 @@ const DocumentsPage = () => {
     fetchVoices();
   }, []);
 
+  // 파일 확장자 검증 함수
+  const validateFiles = (fileList: File[]) => {
+    const allowedExtensions = ['.pdf', '.docx', '.txt'];
+
+    const validFiles = fileList.filter(file => {
+      const extension = '.' + file.name.split('.').pop()?.toLowerCase();
+      return allowedExtensions.includes(extension);
+    });
+
+    if (validFiles.length !== fileList.length) {
+      alert('PDF, DOCX, TXT 파일만 업로드 가능합니다.');
+    }
+
+    return validFiles;
+  };
+
   // 파일 선택 처리
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
-    setFiles([...files, ...Array.from(e.target.files)]);
+
+    const selectedFiles = Array.from(e.target.files);
+    const allowedExtensions = ['.pdf', '.docx', '.txt'];
+
+    const validFiles = selectedFiles.filter(file => {
+      const extension = '.' + file.name.split('.').pop()?.toLowerCase();
+      return allowedExtensions.includes(extension);
+    });
+
+    if (validFiles.length !== selectedFiles.length) {
+      alert('PDF, DOCX, TXT 파일만 업로드 가능합니다.');
+    }
+
+    if (validFiles.length > 0) {
+      setFiles([...files, ...validFiles]);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const droppedFiles = Array.from(e.dataTransfer.files);
+    const allowedExtensions = ['.pdf', '.docx', '.txt'];
+
+    const validFiles = droppedFiles.filter(file => {
+      const extension = '.' + file.name.split('.').pop()?.toLowerCase();
+      return allowedExtensions.includes(extension);
+    });
+
+    if (validFiles.length !== droppedFiles.length) {
+      alert('PDF, DOCX, TXT 파일만 업로드 가능합니다.');
+    }
+
+    if (validFiles.length > 0) {
+      setFiles([...files, ...validFiles]);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
   };
 
   // 링크 필드 추가 및 업데이트
@@ -207,17 +273,32 @@ const DocumentsPage = () => {
       </div>
 
       {/* Upload Box */}
-      <div className="bg-white rounded-xl border-2 border-dashed border-gray-300 p-12 text-center hover:border-gray-400 hover:bg-gray-50 transition-all">
+      <div
+        className={`rounded-xl border-2 border-dashed p-12 text-center transition-all duration-200 ${isDragging
+          ? 'border-blue-500 bg-blue-50 transform scale-105 shadow-lg'
+          : 'bg-white border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+          }`}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+        onDragLeave={handleDragLeave}
+      >
         <div className="max-w-md mx-auto">
-          <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-xl flex items-center justify-center">
-            <Upload className="w-8 h-8 text-gray-600" />
+          <div className={`w-16 h-16 mx-auto mb-4 rounded-xl flex items-center justify-center transition-all duration-200 ${isDragging ? 'bg-blue-200 transform scale-110' : 'bg-gray-100'
+            }`}>
+            <Upload className={`w-8 h-8 transition-colors duration-200 ${isDragging ? 'text-blue-600' : 'text-gray-600'
+              }`} />
           </div>
 
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">
-            문서를 업로드하세요
+          <h3 className={`text-lg font-semibold mb-2 transition-colors duration-200 ${isDragging ? 'text-blue-600' : 'text-gray-900'
+            }`}>
+            {isDragging ? '✨ 파일을 놓으세요!' : '문서를 업로드하세요'}
           </h3>
-          <p className="text-sm text-gray-600 mb-4">
-            PDF, DOCX, TXT 파일을 여러 개 업로드할 수 있습니다
+          <p className={`text-sm mb-4 transition-colors duration-200 ${
+  isDragging ? 'text-blue-600 font-semibold' : 'text-gray-600'
+}`}>
+            {isDragging
+              ? 'PDF, DOCX, TXT 파일만 가능합니다'
+              : '드래그 앤 드롭 또는 파일을 선택하세요'}
           </p>
 
           {/* Only the button triggers file input */}
@@ -234,6 +315,7 @@ const DocumentsPage = () => {
             ref={fileInputRef}
             onChange={handleFileSelect}
             className="hidden"
+            accept=".pdf,.docx,.txt"  // 이 줄 추가
           />
 
           {/* Uploaded file list */}
@@ -362,11 +444,10 @@ const DocumentsPage = () => {
               <button
                 key={style.id}
                 onClick={() => setSelectedStyle(style.id)}
-                className={`px-4 py-2 rounded-lg border ${
-                  selectedStyle === style.id
-                    ? "bg-blue-600 text-white border-blue-600"
-                    : "border-gray-300 text-gray-700 hover:bg-gray-100"
-                }`}
+                className={`px-4 py-2 rounded-lg border ${selectedStyle === style.id
+                  ? "bg-blue-600 text-white border-blue-600"
+                  : "border-gray-300 text-gray-700 hover:bg-gray-100"
+                  }`}
               >
                 {style.label}
               </button>

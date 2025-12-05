@@ -52,6 +52,7 @@ export default function SourceModal({
 
   const [hostList, setHostList] = useState<{ name: string }[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -91,10 +92,60 @@ export default function SourceModal({
     );
   };
 
+  // 파일 확장자 검증 함수
+  const validateFiles = (fileList: File[]) => {
+    const allowedExtensions = ['.pdf', '.docx', '.txt'];
+
+    const validFiles = fileList.filter(file => {
+      const extension = '.' + file.name.split('.').pop()?.toLowerCase();
+      return allowedExtensions.includes(extension);
+    });
+
+    if (validFiles.length !== fileList.length) {
+      alert('PDF, DOCX, TXT 파일만 업로드 가능합니다.');
+    }
+
+    return validFiles;
+  };
+
   // 파일 선택
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
-    setFiles([...files, ...Array.from(e.target.files)]);
+
+    const selectedFiles = Array.from(e.target.files);
+    const validFiles = validateFiles(selectedFiles);
+
+    if (validFiles.length > 0) {
+      setFiles([...files, ...validFiles]);
+    }
+  };
+
+  // 드래그 오버
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  // 드롭
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const droppedFiles = Array.from(e.dataTransfer.files);
+    const validFiles = validateFiles(droppedFiles);
+
+    if (validFiles.length > 0) {
+      setFiles([...files, ...validFiles]);
+    }
+  };
+
+  // 드래그 떠남
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
   };
 
   // 링크 추가/수정/삭제
@@ -314,13 +365,23 @@ export default function SourceModal({
               {/* 2. 새 파일 업로드 */}
               <section className="mb-6">
                 <h3 className="font-semibold mb-2">새 문서 업로드</h3>
-                <div className="border-2 border-dashed rounded-lg p-4 text-center">
+                <div
+                  className={`border-2 border-dashed rounded-lg p-4 text-center transition-all ${isDragging
+                    ? 'border-blue-500 bg-blue-50'
+                    : 'border-gray-300'
+                    }`}
+                  onDragOver={handleDragOver}
+                  onDrop={handleDrop}
+                  onDragLeave={handleDragLeave}
+                >
                   <div className="flex flex-col items-center gap-2">
                     <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
                       <Upload className="w-6 h-6 text-gray-500" />
                     </div>
                     <p className="text-sm text-gray-600">
-                      PDF, DOCX, TXT 파일 업로드
+                      {isDragging
+                        ? '여기에 파일을 놓으세요'
+                        : '드래그 앤 드롭 또는 파일을 선택하세요'}
                     </p>
                     <button
                       onClick={() => fileInputRef.current?.click()}
@@ -334,6 +395,7 @@ export default function SourceModal({
                       ref={fileInputRef}
                       onChange={handleFileSelect}
                       className="hidden"
+                      accept=".pdf,.docx,.txt"
                     />
                   </div>
 
@@ -428,11 +490,10 @@ export default function SourceModal({
                       <button
                         key={s.id}
                         onClick={() => setStyle(s.id)}
-                        className={`px-3 py-1 rounded border text-sm ${
-                          style === s.id
-                            ? "bg-blue-600 text-white border-blue-600"
-                            : "border-gray-300 text-gray-700 hover:bg-gray-100"
-                        }`}
+                        className={`px-3 py-1 rounded border text-sm ${style === s.id
+                          ? "bg-blue-600 text-white border-blue-600"
+                          : "border-gray-300 text-gray-700 hover:bg-gray-100"
+                          }`}
                       >
                         {s.label}
                       </button>
