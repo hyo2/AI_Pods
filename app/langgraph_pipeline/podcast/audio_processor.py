@@ -31,8 +31,13 @@ class AudioProcessor:
         
         logger.info(f"오디오 파일 {len(wav_files)}개 병합 중...")
         
+        # 저장 파일 경로 추가 - outputs의 podcast 폴더에 저장
+        output_dir = "outputs/podcasts"
+        os.makedirs(output_dir, exist_ok=True)
+
         list_file_path = "concat_list.txt"
-        final_filename = f"podcast_episode_{uuid.uuid4().hex[:8]}.mp3"
+        final_filename = os.path.join(output_dir,f"podcast_episode_{uuid.uuid4().hex[:8]}.mp3")
+        # final_filename = f"podcast_episode_{uuid.uuid4().hex[:8]}.mp3"
         
         try:
             # FFmpeg concat 파일 생성
@@ -94,7 +99,13 @@ class AudioProcessor:
             
             current_time += item['duration'] + INTER_CHUNK_DELAY
         
-        transcript_path = output_path.replace(".mp3", ".txt")
+        # outputs의 podcast 폴더에 저장
+        output_dir = "outputs/podcasts"
+        os.makedirs(output_dir, exist_ok=True)
+
+        mp3_filename = os.path.basename(output_path).replace(".mp3", ".txt")
+        transcript_path = os.path.join(output_dir, mp3_filename)
+        # transcript_path = output_path.replace(".mp3", ".txt")
         
         with open(transcript_path, "w", encoding="utf-8") as f:
             f.write("\n".join(transcript_lines))

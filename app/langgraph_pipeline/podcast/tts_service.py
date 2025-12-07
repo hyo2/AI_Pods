@@ -1,4 +1,5 @@
 # app/services/podcast/tts_service.py
+import os
 import re
 import time
 import uuid
@@ -137,8 +138,13 @@ class TTSService:
                 pcm_bytes = base64_to_bytes(audio_data_part.inline_data.data)
                 duration_seconds = len(pcm_bytes) / 48000.0
                 
+                # 파일 저장 경로 지정
+                output_dir = "outputs/podcasts/wav"
+                os.makedirs(output_dir, exist_ok=True)
+
                 wav_bytes = pcm_to_wav(pcm_bytes, sample_rate=24000)
-                output_file = f"{base_filename}_{index + 1}_{speaker}_{chunk_index}.wav"
+                output_file = os.path.join(output_dir, f"{base_filename}_{index + 1}_{speaker}_{chunk_index}.wav")
+                # output_file = f"{base_filename}_{index + 1}_{speaker}_{chunk_index}.wav"
                 
                 with open(output_file, "wb") as f:
                     f.write(wav_bytes)

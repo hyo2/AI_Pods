@@ -40,7 +40,7 @@ async def run_langgraph(
 
         final_state = await graph.ainvoke(initial_state)
         
-        # ⭐ 최종 state 확인
+        # 최종 state 확인
         print("\n" + "="*80)
         print("✅ 파이프라인 완료 - 최종 State")
         print("="*80)
@@ -61,7 +61,7 @@ async def run_langgraph(
             else:
                 print(f"  - {key}: {type(value).__name__}")
         
-        # ⭐ 중요 필드 상세 출력
+        # 중요 필드 상세 출력
         print("\n" + "="*80)
         print("📦 주요 결과물")
         print("="*80)
@@ -89,15 +89,18 @@ async def run_langgraph(
             for err in final_state["errors"]:
                 print(f"   - {err}")
         
-        title_line = final_state["script"].split("\n")[0]
-        title_text = title_line.replace("팟캐스트:", "").replace("\"", "").strip()
+        # title_line = final_state["script"].split("\n")[0]
+        # title_text = title_line.replace("팟캐스트:", "").replace("\"", "").strip()
+        title_sub = final_state["image_plans"][0].title
 
-        print("추출된 title text :", title_text)
-        print("추출된 summary : ", final_state["metadata"].content.summary)
+        # print("추출된 title text :", title_text)
+        print("팟캐스트 title : ", title_sub)
+        # print("추출된 summary : ", final_state["metadata"].content.summary)
+        print("추출된 detailed_summary : ", final_state["metadata"].content.detailed_summary)
         return final_state
         
     except Exception as e:
-        # ⭐ 전체 스택 트레이스 출력
+        # 전체 스택 트레이스 출력
         import traceback
         print("\n" + "="*80)
         print("❌ 파이프라인 오류 발생")
@@ -105,21 +108,3 @@ async def run_langgraph(
         print(traceback.format_exc())
         print("="*80)
         raise
-
-    # ------------------------------------------------------------
-    # FastAPI → supabase DB에 넣을 최종 결과물을 리턴하도록 정리
-    # ------------------------------------------------------------
-    # return {
-    #     "final_podcast_path": final_state.get("final_podcast_path"),
-    #     "transcript_path": final_state.get("transcript_path"),
-    #     "script_text": final_state.get("script_text"),
-    #     "scenes": final_state.get("scenes"),
-    #     "metadata": final_state.get("metadata"),
-    #     "image_plans": final_state.get("image_plans"),
-    #     "image_prompts": final_state.get("image_prompts"),
-    #     "timeline": final_state.get("timeline"),
-    #     "image_paths": final_state.get("image_paths"),
-    #     "host_name": final_state.get("host_name", host1),
-    #     "guest_name": final_state.get("guest_name", host2),
-    #     "errors": final_state.get("errors", []),
-    # }

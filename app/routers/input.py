@@ -1,6 +1,6 @@
 # app/routers/input.py
 from fastapi import APIRouter, UploadFile, Query, File, Form, HTTPException, Depends
-from typing import List
+from typing import List, Optional
 from datetime import datetime, timedelta
 import uuid, json
 import requests
@@ -29,10 +29,10 @@ def get_inputs(project_id: int = Query(...)):
 async def submit_inputs(
     user_id: str = Form(...), # uuid
     project_id: int = Form(...),
-    host1: str = Form(...),
-    host2: str = Form(...),
-    style: str = Form(...),
-    links: str = Form("[]"),        # JSON string
+    host1: str = Form(""),      # ✅ 선택 필드로 변경
+    host2: str = Form(""),      # ✅ 선택 필드로 변경
+    style: str = Form(""),      # ✅ 선택 필드로 변경
+    links: str = Form("[]"),    # JSON string
     files: List[UploadFile] = File(None)
 ):
     """
@@ -40,11 +40,22 @@ async def submit_inputs(
     파일은 supabase storage에 저장.
     링크는 input_contents에 URL 정보만 저장.
     호스트/스타일 옵션은 output 생성 요청할 때 사용되므로 input 단계에 options로 저장해 둠.
+    
+    ✅ host1, host2, style은 선택 필드 - 소스 추가만 할 때는 빈 값으로 전달 가능
     """
 
     expires_at = datetime.utcnow() + timedelta(days=30)
 
     saved_inputs = []
+
+    # options 딕셔너리 생성 (값이 있을 때만 포함)
+    options = {}
+    if host1:
+        options["host1"] = host1
+    if host2:
+        options["host2"] = host2
+    if style:
+        options["style"] = style
 
     # 1) 링크 저장 (input_contents)
     link_list = json.loads(links) if links else []
@@ -56,8 +67,8 @@ async def submit_inputs(
             "title": url,
             "is_link": True,
             "link_url": url,
-            "options": { "host1": host1, "host2": host2, "style": style },
-            "expires_at": expires_at.isoformat() # 직렬화 문제로 문자열로 저장
+            "options": options if options else None,  # ✅ 빈 dict 대신 None
+            "expires_at": expires_at.isoformat()
         }).execute()
 
         saved_inputs.append(res.data[0])
@@ -87,7 +98,7 @@ async def submit_inputs(
                 "storage_path": storage_path,
                 "file_type": file.content_type,
                 "file_size": len(content),
-                "options": { "host1": host1, "host2": host2, "style": style },
+                "options": options if options else None,  # ✅ 빈 dict 대신 None
                 "expires_at": expires_at.isoformat()
             }).execute()
 

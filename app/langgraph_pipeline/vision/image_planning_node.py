@@ -171,34 +171,28 @@ class ImagePlanningNode:
     def create_image_plans(
         self,
         full_script: str,
-        metadata: Any,  # PodcastMetadata 객체
+        metadata: Any,
         target_image_count: int = None,
         max_retries: int = 3
     ) -> List[ImagePlan]:
-        """
-        전체 스크립트로부터 이미지 계획 생성 (재시도 로직 포함)
-        
-        Args:
-            full_script: 전체 팟캐스트 스크립트
-            metadata: 메타데이터 (PodcastMetadata 객체)
-            target_image_count: 목표 이미지 개수 (None이면 자동)
-            max_retries: 최대 재시도 횟수
-        
-        Returns:
-            이미지 계획 리스트
-        """
+        """전체 스크립트로부터 이미지 계획 생성 (재시도 로직 포함)"""
         if not self.model:
-            raise RuntimeError("Vertex AI 모델이 초기화되지 않았습니다. GOOGLE_CLOUD_PROJECT 및 인증 정보를 확인하세요.")
+            raise RuntimeError("Vertex AI 모델이 초기화되지 않았습니다.")
         
         print("\n" + "="*80)
         print("🎬 이미지 계획 생성 중...")
         print("="*80)
         
-        # 팟캐스트 길이 계산 (마지막 타임스탬프에서)
+        # 팟캐스트 길이 계산
         duration_minutes = self._calculate_duration(full_script)
         print(f"   팟캐스트 길이: {duration_minutes}분")
         
-        # metadata를 dict로 변환 (JSON 전달용)
+        # ⭐ 스크립트가 너무 길면 요약본 생성
+        if len(full_script) > 10000:  # 약 10,000자 이상
+            print(f"   ⚠️  스크립트가 깁니다 ({len(full_script)}자). 핵심만 추출합니다...")
+            full_script = self._summarize_script(full_script)
+        
+        # metadata를 dict로 변환
         if hasattr(metadata, '__dataclass_fields__'):
             from dataclasses import asdict
             metadata_dict = asdict(metadata)
@@ -218,15 +212,36 @@ class ImagePlanningNode:
                 if attempt > 0:
                     print(f"   재시도 {attempt + 1}/{max_retries}...")
                 
-                # Gemini 호출
+                # ⭐ 토큰 제한 대폭 증가 + temperature 조정
                 response = self.model.generate_content(
                     prompt,
                     generation_config={
-                        "temperature": 0.3,
-                        "max_output_tokens": 8192,
-                        "response_mime_type": "application/json"  # JSON 응답 강제
+                        "temperature": 0.2,  # 0.3 → 0.2 (더 일관성 있게)
+                        "max_output_tokens": 16384,  # 8192 → 16384 (2배 증가)
+                        "response_mime_type": "application/json"
                     }
                 )
+                
+                # ⭐ 응답 검증 추가
+                if not response.candidates:
+                    raise RuntimeError("응답에 candidates가 없습니다.")
+                
+                candidate = response.candidates[0]
+                
+                # finish_reason 체크
+                if candidate.finish_reason.name == "MAX_TOKENS":
+                    print(f"   ⚠️  MAX_TOKENS 도달 (시도 {attempt + 1}/{max_retries})")
+                    if attempt < max_retries - 1:
+                        # 다음 시도에서는 스크립트를 더 줄임
+                        full_script = self._summarize_script(full_script, max_length=5000)
+                        prompt = IMAGE_PLANNING_PROMPT.format(
+                            full_script=full_script,
+                            metadata=json.dumps(metadata_dict, ensure_ascii=False, indent=2),
+                            duration_minutes=duration_minutes
+                        )
+                        continue
+                    else:
+                        raise RuntimeError("MAX_TOKENS 한계로 인해 생성 실패")
                 
                 # JSON 파싱
                 response_text = response.text.strip()
@@ -237,6 +252,14 @@ class ImagePlanningNode:
                     if response_text.startswith("json"):
                         response_text = response_text[4:]
                     response_text = response_text.strip()
+                
+                # ⭐ JSON 유효성 사전 검사
+                if not response_text.endswith("}"):
+                    print(f"   ⚠️  JSON이 불완전합니다. 마지막 100자: ...{response_text[-100:]}")
+                    if attempt < max_retries - 1:
+                        continue
+                    else:
+                        raise json.JSONDecodeError("JSON이 완전하지 않음", response_text, len(response_text))
                 
                 result = json.loads(response_text)
                 
@@ -269,14 +292,6 @@ class ImagePlanningNode:
                     print(f"❌ 이미지 계획 생성 최종 실패")
                     raise RuntimeError(f"이미지 계획 생성 실패: JSON 파싱 에러 ({str(e)})")
             
-            except KeyError as e:
-                print(f"⚠️  필수 필드 누락 (시도 {attempt + 1}/{max_retries}): {str(e)}")
-                if attempt < max_retries - 1:
-                    continue
-                else:
-                    print(f"❌ 이미지 계획 생성 최종 실패")
-                    raise RuntimeError(f"이미지 계획 생성 실패: 필수 필드 누락 ({str(e)})")
-            
             except Exception as e:
                 print(f"⚠️  생성 실패 (시도 {attempt + 1}/{max_retries}): {str(e)}")
                 if attempt < max_retries - 1:
@@ -287,8 +302,44 @@ class ImagePlanningNode:
                     print(f"❌ 이미지 계획 생성 최종 실패")
                     raise RuntimeError(f"이미지 계획 생성 실패: {str(e)}")
         
-        # 여기 도달하면 실패
         raise RuntimeError("이미지 계획 생성 실패: 최대 재시도 횟수 초과")
+
+    def _summarize_script(self, full_script: str, max_length: int = 8000) -> str:
+        """
+        스크립트가 너무 길 때 핵심만 추출
+        
+        Args:
+            full_script: 전체 스크립트
+            max_length: 최대 길이
+        
+        Returns:
+            요약된 스크립트
+        """
+        if len(full_script) <= max_length:
+            return full_script
+        
+        print(f"   📝 스크립트 요약 중 ({len(full_script)} → {max_length}자)...")
+        
+        # 타임스탬프별로 분리
+        import re
+        segments = re.split(r'(\[\d{2}:\d{2}:\d{2}\])', full_script)
+        
+        # 균등하게 샘플링
+        step = max(1, len(segments) // 50)  # 최대 50개 세그먼트
+        sampled = []
+        
+        for i in range(0, len(segments), step):
+            if i < len(segments):
+                sampled.append(segments[i])
+        
+        summarized = ''.join(sampled)
+        
+        # 여전히 길면 강제 자르기
+        if len(summarized) > max_length:
+            summarized = summarized[:max_length] + "...\n[스크립트 계속]"
+        
+        print(f"   ✅ 요약 완료: {len(summarized)}자")
+        return summarized
     
     def _calculate_duration(self, full_script: str) -> int:
         """
