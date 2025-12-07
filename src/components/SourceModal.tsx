@@ -32,22 +32,15 @@ export default function SourceModal({
 }: Props) {
   const userId = localStorage.getItem("user_id") || "";
 
-  // 선택된 기존 input들
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
 
-  // 새로 업로드할 자료들
   const [links, setLinks] = useState<string[]>([]);
   const [files, setFiles] = useState<File[]>([]);
 
-  // 옵션들
   const [host1, setHost1] = useState("");
   const [host2, setHost2] = useState("");
   const [style, setStyle] = useState("");
 
-  // 새로 생성할 output 제목
-  const [title, setTitle] = useState("");
-
-  // 에러 메시지
   const [errorMsg, setErrorMsg] = useState("");
 
   const [hostList, setHostList] = useState<{ name: string }[]>([]);
@@ -56,7 +49,6 @@ export default function SourceModal({
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // host 목록 불러오기
   useEffect(() => {
     const fetchVoices = async () => {
       try {
@@ -73,42 +65,37 @@ export default function SourceModal({
 
   useEffect(() => {
     if (isOpen) {
-      // 모달이 열릴 때 입력값 초기화
       setSelectedIds([]);
       setLinks([]);
       setFiles([]);
       setHost1("");
       setHost2("");
       setStyle("");
-      setTitle("");
       setErrorMsg("");
     }
   }, [isOpen]);
 
-  // 체크박스 토글
   const toggleSelect = (id: number) => {
     setSelectedIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
   };
 
-  // 파일 확장자 검증 함수
   const validateFiles = (fileList: File[]) => {
-    const allowedExtensions = ['.pdf', '.docx', '.txt'];
+    const allowedExtensions = [".pdf", ".docx", ".txt"];
 
-    const validFiles = fileList.filter(file => {
-      const extension = '.' + file.name.split('.').pop()?.toLowerCase();
+    const validFiles = fileList.filter((file) => {
+      const extension = "." + file.name.split(".").pop()?.toLowerCase();
       return allowedExtensions.includes(extension);
     });
 
     if (validFiles.length !== fileList.length) {
-      alert('PDF, DOCX, TXT 파일만 업로드 가능합니다.');
+      alert("PDF, DOCX, TXT 파일만 업로드 가능합니다.");
     }
 
     return validFiles;
   };
 
-  // 파일 선택
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
 
@@ -120,14 +107,12 @@ export default function SourceModal({
     }
   };
 
-  // 드래그 오버
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(true);
   };
 
-  // 드롭
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -141,14 +126,12 @@ export default function SourceModal({
     }
   };
 
-  // 드래그 떠남
   const handleDragLeave = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
   };
 
-  // 링크 추가/수정/삭제
   const addLinkField = () => setLinks([...links, ""]);
   const updateLink = (i: number, value: string) => {
     setLinks((prev) => prev.map((v, idx) => (i === idx ? value : v)));
@@ -157,7 +140,6 @@ export default function SourceModal({
     setLinks((prev) => prev.filter((_, idx) => idx !== i));
   };
 
-  // 기존 input 삭제
   const handleDeleteExistingSource = async (sourceId: number) => {
     if (!window.confirm("정말 삭제하시겠습니까?")) return;
 
@@ -178,11 +160,9 @@ export default function SourceModal({
     }
   };
 
-  // 팟캐스트 생성
   const handleGenerate = async () => {
     setErrorMsg("");
 
-    // 유효성 체크
     if (!userId) {
       setErrorMsg("로그인이 필요합니다.");
       return;
@@ -198,11 +178,6 @@ export default function SourceModal({
       return;
     }
 
-    if (!title.trim()) {
-      setErrorMsg("출력 파일명을 입력해주세요.");
-      return;
-    }
-
     if (selectedIds.length === 0 && files.length === 0 && links.length === 0) {
       setErrorMsg("기존 소스 선택 또는 새 파일/링크를 입력해야 합니다.");
       return;
@@ -211,7 +186,6 @@ export default function SourceModal({
     setIsLoading(true);
 
     try {
-      // 새로 추가되는 파일/링크는 upload API로 저장 후 input_contents rows 반환
       let newInputIds: number[] = [];
 
       if (files.length > 0 || links.length > 0) {
@@ -242,20 +216,19 @@ export default function SourceModal({
         const uploadJson = await uploadRes.json();
         newInputIds = uploadJson.inputs.map((i: any) => i.id);
 
-        // 새 input 업로드 완료 알림 -> 부모 inputs 갱신
         onUploaded();
       }
 
       const finalInputIds = [...selectedIds, ...newInputIds];
 
-      // 2) generate API 호출 (프로젝트는 이미 존재함)
       const generateForm = new FormData();
       generateForm.append("project_id", String(projectId));
       generateForm.append("input_content_ids", JSON.stringify(finalInputIds));
       generateForm.append("host1", host1);
       generateForm.append("host2", host2);
       generateForm.append("style", style);
-      generateForm.append("title", title);
+      // ✅ 백엔드 기본값 사용 (title 전달 안 함 → "새 팟캐스트"로 자동 설정됨)
+      generateForm.append("title", "새 팟캐스트");
 
       const genRes = await fetch(`${API_BASE_URL}/outputs/generate`, {
         method: "POST",
@@ -270,11 +243,12 @@ export default function SourceModal({
 
       const { output_id } = await genRes.json();
 
-      // output_id만 반환해서 부모 페이지에서 polling하도록 함
+      // ✅ 임시 output은 "새 팟캐스트"로 표시
       onGenerated({
         id: output_id,
-        title,
+        title: "새 팟캐스트",
         status: "processing",
+        created_at: new Date().toISOString(),
       } as any);
 
       onClose();
@@ -289,7 +263,6 @@ export default function SourceModal({
   return (
     <Transition show={isOpen} appear as={Fragment}>
       <Dialog as="div" className="relative z-50" onClose={onClose}>
-        {/* 배경 */}
         <Transition.Child
           as={Fragment}
           enter="ease-out duration-200"
@@ -302,7 +275,6 @@ export default function SourceModal({
           <div className="fixed inset-0 bg-black/40" />
         </Transition.Child>
 
-        {/* 모달 내용 */}
         <div className="fixed inset-0 flex items-center justify-center p-6">
           <Transition.Child
             as={Fragment}
@@ -314,7 +286,6 @@ export default function SourceModal({
             leaveTo="opacity-0 scale-95"
           >
             <Dialog.Panel className="w-[780px] max-h-[90vh] overflow-y-auto bg-white rounded-xl shadow-xl p-6">
-              {/* 헤더 */}
               <div className="flex justify-between items-center mb-4">
                 <Dialog.Title className="text-xl font-semibold">
                   소스 선택
@@ -347,7 +318,6 @@ export default function SourceModal({
                           onChange={() => toggleSelect(src.id)}
                         />
                         <span className="flex-1 truncate">{src.title}</span>
-                        {/* 소스 삭제 버튼 */}
                         <button
                           onClick={() => handleDeleteExistingSource(src.id)}
                           className="text-red-500 hover:text-red-600 text-sm"
@@ -366,10 +336,11 @@ export default function SourceModal({
               <section className="mb-6">
                 <h3 className="font-semibold mb-2">새 문서 업로드</h3>
                 <div
-                  className={`border-2 border-dashed rounded-lg p-4 text-center transition-all ${isDragging
-                    ? 'border-blue-500 bg-blue-50'
-                    : 'border-gray-300'
-                    }`}
+                  className={`border-2 border-dashed rounded-lg p-4 text-center transition-all ${
+                    isDragging
+                      ? "border-blue-500 bg-blue-50"
+                      : "border-gray-300"
+                  }`}
                   onDragOver={handleDragOver}
                   onDrop={handleDrop}
                   onDragLeave={handleDragLeave}
@@ -380,8 +351,8 @@ export default function SourceModal({
                     </div>
                     <p className="text-sm text-gray-600">
                       {isDragging
-                        ? '여기에 파일을 놓으세요'
-                        : '드래그 앤 드롭 또는 파일을 선택하세요'}
+                        ? "여기에 파일을 놓으세요"
+                        : "드래그 앤 드롭 또는 파일을 선택하세요"}
                     </p>
                     <button
                       onClick={() => fileInputRef.current?.click()}
@@ -447,7 +418,7 @@ export default function SourceModal({
                 </button>
               </section>
 
-              {/* 4. 호스트 / 스타일 선택 */}
+              {/* 4. 호스트 & 스타일 선택 */}
               <section className="mb-6">
                 <h3 className="font-semibold mb-3">호스트 & 스타일</h3>
                 <div className="grid grid-cols-2 gap-4 mb-4">
@@ -490,27 +461,23 @@ export default function SourceModal({
                       <button
                         key={s.id}
                         onClick={() => setStyle(s.id)}
-                        className={`px-3 py-1 rounded border text-sm ${style === s.id
-                          ? "bg-blue-600 text-white border-blue-600"
-                          : "border-gray-300 text-gray-700 hover:bg-gray-100"
-                          }`}
+                        className={`px-3 py-1 rounded border text-sm ${
+                          style === s.id
+                            ? "bg-blue-600 text-white border-blue-600"
+                            : "border-gray-300 text-gray-700 hover:bg-gray-100"
+                        }`}
                       >
                         {s.label}
                       </button>
                     ))}
                   </div>
                 </div>
-
-                <div>
-                  <p className="text-sm mb-1">팟캐스트 제목</p>
-                  <input
-                    type="text"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    className="w-full px-3 py-2 border rounded"
-                  />
-                </div>
               </section>
+
+              {/* 에러 메시지 */}
+              {errorMsg && (
+                <p className="text-red-600 text-sm mb-3">{errorMsg}</p>
+              )}
 
               {/* 5. 하단 버튼 */}
               <div className="flex justify-center gap-3 mt-4">
@@ -521,15 +488,6 @@ export default function SourceModal({
                 >
                   {isLoading ? "생성 중..." : "팟캐스트 생성하기"}
                 </button>
-
-                {/* 취소 버튼 */}
-                {/* <button
-                  onClick={onClose}
-                  className="px-4 py-2 rounded border border-gray-300 text-gray-700"
-                  disabled={isLoading}
-                >
-                  취소
-                </button> */}
               </div>
             </Dialog.Panel>
           </Transition.Child>

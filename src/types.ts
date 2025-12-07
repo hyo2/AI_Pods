@@ -7,9 +7,13 @@ export interface ExistingSource {
 export interface OutputContent {
   id: number;
   title: string;
-  audio_url: string;
-  script_url: string;
-  created_at?: string;
-  summary: string;
   status: "processing" | "completed" | "failed";
+  created_at?: string;
+
+  // 아래 필드는 processing 때는 없음 -> optional로 변경
+  audio_url?: string;
+  audio_path?: string;
+  script_url?: string;
+  script_path?: string;
+  summary?: string;
 }
