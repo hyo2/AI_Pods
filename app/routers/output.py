@@ -126,15 +126,15 @@ def get_output_detail(output_id: int):
 @router.get("/{output_id}/status")
 def get_output_status(output_id: int):
     res = supabase.table("output_contents") \
-        .select("status") \
+        .select("status, error_message") \
         .eq("id", output_id) \
-        .single() \
         .execute()
-
-    if res.data is None:
+    
+    # 데이터가 없으면 404 반환 (polling 중단 신호) - 추후 Edge Function이 삭제함
+    if not res.data or len(res.data) == 0:
         raise HTTPException(status_code=404, detail="Output not found")
-
-    return res.data
+    
+    return res.data[0]
 
 # output 삭제
 @router.delete("/{output_id}")
@@ -381,6 +381,16 @@ async def process_langgraph_output(project_id, output_id, input_ids, host1, host
         }).in_("id", input_ids).execute()
 
     except Exception as e:
-        print("[LangGraph Error]", e)
-        delete_output_internal(output_id)
-        return
+        error_msg = str(e)
+        print(f"[LangGraph Error] output_id={output_id}: {error_msg}")
+        
+        # 삭제하지 않고 failed 상태로 업데이트
+        try:
+            supabase.table("output_contents").update({
+                "status": "failed",
+                "error_message": error_msg[:500],  # 에러 메시지 길이 제한
+                "expires_at": (datetime.utcnow() + timedelta(days=7)).isoformat()  # 7일 후 만료
+            }).eq("id", output_id).execute()
+
+        except Exception as update_err:
+            print(f"[Status Update Error] {update_err}")

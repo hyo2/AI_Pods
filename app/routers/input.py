@@ -44,7 +44,8 @@ async def submit_inputs(
     ✅ host1, host2, style은 선택 필드 - 소스 추가만 할 때는 빈 값으로 전달 가능
     """
 
-    expires_at = datetime.utcnow() + timedelta(days=30)
+    # 일반 사용자 기준 input source 만료일 180일로 지정
+    expires_at = datetime.utcnow() + timedelta(days=180)
 
     saved_inputs = []
 
@@ -67,7 +68,7 @@ async def submit_inputs(
             "title": url,
             "is_link": True,
             "link_url": url,
-            "options": options if options else None,  # ✅ 빈 dict 대신 None
+            "options": options if options else None,  # 빈 dict 대신 None
             "expires_at": expires_at.isoformat()
         }).execute()
 
