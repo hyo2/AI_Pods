@@ -36,18 +36,10 @@ const ProjectDetailPage = () => {
     setOutputs(data.outputs ?? []);
   };
 
-  const fetchProjectInfo = async () => {
-    if (!projectId) return;
-    const res = await fetch(`${API_BASE_URL}/projects/${projectId}`);
-    const data = await res.json();
-    setProjectTitle(data.project?.title || "프로젝트");
-  };
-
   useEffect(() => {
     if (!projectId) return;
     fetchInputs();
     fetchOutputs();
-    fetchProjectInfo();
   }, [projectId]);
 
   useEffect(() => {
