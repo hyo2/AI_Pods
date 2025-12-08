@@ -51,8 +51,9 @@ const ProjectSidebar = ({
 
   return (
     <div
-      className={`fixed left-16 top-0 h-full w-64 bg-white border-r shadow-lg z-50 transform transition-transform duration-300
-      ${open ? "translate-x-0" : "-translate-x-full"}
+      className={`fixed left-16 top-0 h-full w-64 bg-white border-r shadow-lg z-50 transform transition-transform duration-300 ${open ? "translate-x-0" : "-translate-x-full"}
+      /* 1. 세로 배치 설정 */
+        flex flex-col
     `}
     >
       {/* Header */}

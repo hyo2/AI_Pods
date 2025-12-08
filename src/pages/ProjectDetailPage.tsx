@@ -17,6 +17,8 @@ const ProjectDetailPage = () => {
   const [selectedOutputId, setSelectedOutputId] = useState<number | null>(null);
   const [projectTitle, setProjectTitle] = useState("프로젝트");
   const [selectedSourceIds, setSelectedSourceIds] = useState<number[]>([]);
+  const [rightPanelWidth, setRightPanelWidth] = useState(340); // 기본 340px
+  const [isResizing, setIsResizing] = useState(false);
 
   const fetchInputs = async () => {
     if (!projectId) return;
@@ -149,9 +151,41 @@ const ProjectDetailPage = () => {
   };
 
   const selectedOutput = outputs.find((o) => o.id === selectedOutputId);
+  
+
+  // 리사이즈 시작
+  const startResize = (e: React.MouseEvent) => {
+    setIsResizing(true);
+    e.preventDefault();
+  };
+
+  // 리사이즈 중
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const newWidth = window.innerWidth - e.clientX;
+      // 최소 280px, 최대 600px
+      if (newWidth >= 280 && newWidth <= 600) {
+        setRightPanelWidth(newWidth);
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing]);
 
   return (
-    <div className="flex w-full h-screen bg-gray-50 overflow-hidden">
+    <div className="flex w-full h-full bg-gray-50 overflow-hidden min-w-[1000px] min-h-[600px]">
       {/* LEFT: Source Panel */}
       <div className="w-[280px] bg-white border-r flex flex-col flex-shrink-0">
         <SourcePanel
@@ -167,7 +201,7 @@ const ProjectDetailPage = () => {
       {/* CENTER: Podcast Content Viewer */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* 프로젝트 제목 헤더 */}
-        <div className="bg-white border-b px-6 py-3 flex-shrink-0">
+        <div className="bg-white border-b px-6 py-3.5 flex-shrink-0">
           <h1 className="text-lg font-semibold text-gray-800">
             {projectTitle}
           </h1>
@@ -197,8 +231,18 @@ const ProjectDetailPage = () => {
         </div>
       </div>
 
+      {/* 리사이즈 바 */}
+      <div
+        className={`w-1 bg-gray-200 hover:bg-blue-400 cursor-col-resize transition-colors ${isResizing ? 'bg-blue-500' : ''
+          }`}
+        onMouseDown={startResize}
+      />
+
       {/* RIGHT: Generate & Output Panel */}
-      <div className="w-[300px] bg-white border-l flex flex-col flex-shrink-0">
+      <div
+        className="bg-white border-l flex flex-col flex-shrink-0"
+        style={{ width: `${rightPanelWidth}px` }}
+      >
         <GeneratePanel
           outputs={outputs}
           selectedOutputId={selectedOutputId}

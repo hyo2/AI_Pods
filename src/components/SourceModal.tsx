@@ -173,6 +173,11 @@ export default function SourceModal({
       return;
     }
 
+    if (host1 === host2) {
+      setErrorMsg("호스트 1과 호스트 2는 서로 다른 목소리여야 합니다.");
+      return;
+    }
+
     if (!style) {
       setErrorMsg("스타일을 선택해주세요.");
       return;
@@ -336,11 +341,10 @@ export default function SourceModal({
               <section className="mb-6">
                 <h3 className="font-semibold mb-2">새 문서 업로드</h3>
                 <div
-                  className={`border-2 border-dashed rounded-lg p-4 text-center transition-all ${
-                    isDragging
-                      ? "border-blue-500 bg-blue-50"
-                      : "border-gray-300"
-                  }`}
+                  className={`border-2 border-dashed rounded-lg p-4 text-center transition-all ${isDragging
+                    ? "border-blue-500 bg-blue-50"
+                    : "border-gray-300"
+                    }`}
                   onDragOver={handleDragOver}
                   onDrop={handleDrop}
                   onDragLeave={handleDragLeave}
@@ -431,8 +435,12 @@ export default function SourceModal({
                     >
                       <option value="">선택하세요</option>
                       {hostList.map((h) => (
-                        <option key={h.name} value={h.name}>
-                          {h.name}
+                        <option
+                          key={h.name}
+                          value={h.name}
+                          disabled={h.name === host2}
+                        >
+                          {`${h.name}${h.name === host2 ? ' (호스트2 선택됨)' : ''}`}
                         </option>
                       ))}
                     </select>
@@ -446,8 +454,12 @@ export default function SourceModal({
                     >
                       <option value="">선택하세요</option>
                       {hostList.map((h) => (
-                        <option key={h.name} value={h.name}>
-                          {h.name}
+                        <option
+                          key={h.name}
+                          value={h.name}
+                          disabled={h.name === host1}
+                        >
+                          {`${h.name}${h.name === host1 ? ' (호스트1 선택됨)' : ''}`}
                         </option>
                       ))}
                     </select>
@@ -461,11 +473,10 @@ export default function SourceModal({
                       <button
                         key={s.id}
                         onClick={() => setStyle(s.id)}
-                        className={`px-3 py-1 rounded border text-sm ${
-                          style === s.id
-                            ? "bg-blue-600 text-white border-blue-600"
-                            : "border-gray-300 text-gray-700 hover:bg-gray-100"
-                        }`}
+                        className={`px-3 py-1 rounded border text-sm ${style === s.id
+                          ? "bg-blue-600 text-white border-blue-600"
+                          : "border-gray-300 text-gray-700 hover:bg-gray-100"
+                          }`}
                       >
                         {s.label}
                       </button>

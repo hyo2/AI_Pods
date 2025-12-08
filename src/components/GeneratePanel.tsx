@@ -66,6 +66,11 @@ export default function GeneratePanel({
       return;
     }
 
+    if (host1 === host2) {
+      setErrorMsg("호스트 1과 호스트 2는 서로 다른 목소리여야 합니다.");
+      return;
+    }
+
     if (!style) {
       setErrorMsg("스타일을 선택해주세요.");
       return;
@@ -150,8 +155,12 @@ export default function GeneratePanel({
               >
                 <option value="">선택하세요</option>
                 {hostList.map((h) => (
-                  <option key={h.name} value={h.name}>
-                    {h.name}
+                  <option
+                    key={h.name}
+                    value={h.name}
+                    disabled={h.name === host2}
+                  >
+                    {`${h.name}${h.name === host2 ? ' (호스트2 선택됨)' : ''}`}
                   </option>
                 ))}
               </select>
@@ -168,8 +177,12 @@ export default function GeneratePanel({
               >
                 <option value="">선택하세요</option>
                 {hostList.map((h) => (
-                  <option key={h.name} value={h.name}>
-                    {h.name}
+                  <option
+                    key={h.name}
+                    value={h.name}
+                    disabled={h.name === host1}
+                  >
+                    {`${h.name}${h.name === host1 ? ' (호스트1 선택됨)' : ''}`}
                   </option>
                 ))}
               </select>
@@ -185,11 +198,10 @@ export default function GeneratePanel({
                   <button
                     key={s.id}
                     onClick={() => setStyle(s.id)}
-                    className={`px-2 py-1.5 rounded border text-xs transition ${
-                      style === s.id
-                        ? "bg-blue-600 text-white border-blue-600"
-                        : "border-gray-300 text-gray-700 hover:bg-gray-100"
-                    }`}
+                    className={`px-2 py-1.5 rounded border text-xs transition ${style === s.id
+                      ? "bg-blue-600 text-white border-blue-600"
+                      : "border-gray-300 text-gray-700 hover:bg-gray-100"
+                      }`}
                   >
                     {s.label}
                   </button>
@@ -242,10 +254,9 @@ export default function GeneratePanel({
                 <div
                   key={o.id}
                   className={`border rounded-lg p-3 flex flex-col gap-2 relative cursor-pointer transition-all group
-                    ${
-                      isSelected
-                        ? "bg-blue-50 border-blue-400 shadow-sm"
-                        : "border-gray-200 hover:bg-gray-50"
+                    ${isSelected
+                      ? "bg-blue-50 border-blue-400 shadow-sm"
+                      : "border-gray-200 hover:bg-gray-50"
                     }
                     ${isProcessing ? "opacity-75" : ""}
                   `}
