@@ -18,6 +18,7 @@ interface Props {
   onGenerate: (output: OutputContent) => void;
   selectedSourceIds: number[];
   projectId: string;
+  onClearSelectedSources: () => void;
 }
 
 export default function GeneratePanel({
@@ -28,6 +29,7 @@ export default function GeneratePanel({
   onGenerate,
   selectedSourceIds,
   projectId,
+  onClearSelectedSources,
 }: Props) {
   const userId = localStorage.getItem("user_id") || "";
 
@@ -35,6 +37,14 @@ export default function GeneratePanel({
   const [host2, setHost2] = useState("");
   const [style, setStyle] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+
+  useEffect(() => {
+    setHost1("");
+    setHost2("");
+    setStyle("");
+    setErrorMsg("");
+  }, [projectId]);
+
   const [hostList, setHostList] = useState<{ name: string }[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(true);
@@ -115,6 +125,14 @@ export default function GeneratePanel({
         created_at: new Date().toISOString(),
       } as any);
 
+      // 생성 성공 후 소스 선택 초기화
+      onClearSelectedSources();
+
+      // 생성 성공 후 호스트/스타일 초기화
+      setHost1("");
+      setHost2("");
+      setStyle("");
+
       setErrorMsg("");
       setShowSettings(false); // 생성 후 설정 접기
     } catch (err) {
@@ -160,7 +178,7 @@ export default function GeneratePanel({
                     value={h.name}
                     disabled={h.name === host2}
                   >
-                    {`${h.name}${h.name === host2 ? ' (호스트2 선택됨)' : ''}`}
+                    {`${h.name}${h.name === host2 ? " (호스트2 선택됨)" : ""}`}
                   </option>
                 ))}
               </select>
@@ -182,7 +200,7 @@ export default function GeneratePanel({
                     value={h.name}
                     disabled={h.name === host1}
                   >
-                    {`${h.name}${h.name === host1 ? ' (호스트1 선택됨)' : ''}`}
+                    {`${h.name}${h.name === host1 ? " (호스트1 선택됨)" : ""}`}
                   </option>
                 ))}
               </select>
@@ -198,10 +216,11 @@ export default function GeneratePanel({
                   <button
                     key={s.id}
                     onClick={() => setStyle(s.id)}
-                    className={`px-2 py-1.5 rounded border text-xs transition ${style === s.id
-                      ? "bg-blue-600 text-white border-blue-600"
-                      : "border-gray-300 text-gray-700 hover:bg-gray-100"
-                      }`}
+                    className={`px-2 py-1.5 rounded border text-xs transition ${
+                      style === s.id
+                        ? "bg-blue-600 text-white border-blue-600"
+                        : "border-gray-300 text-gray-700 hover:bg-gray-100"
+                    }`}
                   >
                     {s.label}
                   </button>
@@ -254,9 +273,10 @@ export default function GeneratePanel({
                 <div
                   key={o.id}
                   className={`border rounded-lg p-3 flex flex-col gap-2 relative cursor-pointer transition-all group
-                    ${isSelected
-                      ? "bg-blue-50 border-blue-400 shadow-sm"
-                      : "border-gray-200 hover:bg-gray-50"
+                    ${
+                      isSelected
+                        ? "bg-blue-50 border-blue-400 shadow-sm"
+                        : "border-gray-200 hover:bg-gray-50"
                     }
                     ${isProcessing ? "opacity-75" : ""}
                   `}

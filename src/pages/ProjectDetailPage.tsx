@@ -13,8 +13,13 @@ const ProjectDetailPage = () => {
   const newOutputId = newOutputIdParam ? Number(newOutputIdParam) : null;
 
   const [inputs, setInputs] = useState<ExistingSource[]>([]);
+
   const [outputs, setOutputs] = useState<OutputContent[]>([]);
   const [selectedOutputId, setSelectedOutputId] = useState<number | null>(null);
+
+  // Race Condition 방지용
+  const [isFetchingOutputs, setIsFetchingOutputs] = useState(false);
+
   const [projectTitle, setProjectTitle] = useState("프로젝트");
   const [selectedSourceIds, setSelectedSourceIds] = useState<number[]>([]);
   const [rightPanelWidth, setRightPanelWidth] = useState(340); // 기본 340px
@@ -30,12 +35,20 @@ const ProjectDetailPage = () => {
   };
 
   const fetchOutputs = async () => {
-    if (!projectId) return;
-    const res = await fetch(
-      `${API_BASE_URL}/outputs/list?project_id=${projectId}`
-    );
-    const data = await res.json();
-    setOutputs(data.outputs ?? []);
+    if (!projectId || isFetchingOutputs) return;
+
+    setIsFetchingOutputs(true);
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/outputs/list?project_id=${projectId}`
+      );
+      const data = await res.json();
+      setOutputs(data.outputs ?? []);
+    } catch (err) {
+      console.error("Failed to fetch outputs:", err);
+    } finally {
+      setIsFetchingOutputs(false);
+    }
   };
 
   useEffect(() => {
@@ -78,27 +91,58 @@ const ProjectDetailPage = () => {
     });
   }, [outputs]);
 
+  // Race Condition 방지 & failed 처리
   useEffect(() => {
     const processing = outputs.filter((o) => o.status === "processing");
     if (processing.length === 0) return;
+
+    let hasCompletedAny = false;
 
     const interval = setInterval(async () => {
       for (const item of processing) {
         try {
           const res = await fetch(`${API_BASE_URL}/outputs/${item.id}/status`);
+
+          if (res.status === 404) {
+            console.log(`Output ${item.id} not found, removing from list`);
+            setOutputs((prev) => prev.filter((o) => o.id !== item.id));
+            continue;
+          }
+
+          if (!res.ok) {
+            console.error(`Status check failed for ${item.id}:`, res.status);
+            continue;
+          }
+
           const data = await res.json();
 
           if (data.status === "completed") {
-            await fetchOutputs();
+            hasCompletedAny = true;
           }
 
           if (data.status === "failed") {
-            alert(`"${item.title}" 생성 실패: ${data.error_message || ""}`);
-            setOutputs((prev) => prev.filter((o) => o.id !== item.id));
+            setOutputs((prev) =>
+              prev.map((o) =>
+                o.id === item.id
+                  ? {
+                      ...o,
+                      status: "failed",
+                      error_message: data.error_message,
+                    }
+                  : o
+              )
+            );
+            alert(`"${item.title}" 생성 실패`);
           }
         } catch (err) {
-          console.error("status polling error:", err);
+          console.error(`Polling error for output ${item.id}:`, err);
         }
+      }
+
+      // completed가 하나라도 있으면 단 한 번만 전체 새로고침
+      if (hasCompletedAny) {
+        await fetchOutputs();
+        hasCompletedAny = false;
       }
     }, 3000);
 
@@ -143,7 +187,6 @@ const ProjectDetailPage = () => {
   };
 
   const selectedOutput = outputs.find((o) => o.id === selectedOutputId);
-  
 
   // 리사이즈 시작
   const startResize = (e: React.MouseEvent) => {
@@ -167,14 +210,19 @@ const ProjectDetailPage = () => {
       setIsResizing(false);
     };
 
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
 
     return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
     };
   }, [isResizing]);
+
+  useEffect(() => {
+    // 프로젝트가 바뀌면 소스 선택 초기화
+    setSelectedSourceIds([]);
+  }, [projectId]);
 
   return (
     <div className="flex w-full h-full bg-gray-50 overflow-hidden min-w-[1000px] min-h-[600px]">
@@ -208,9 +256,37 @@ const ProjectDetailPage = () => {
                 <p className="text-lg font-semibold text-gray-800 mb-1">
                   팟캐스트를 생성 중입니다...
                 </p>
-                <p className="text-gray-500">
-                  스크립트 작성, 오디오 생성, 이미지 제작을 진행하고 있습니다.
+              </div>
+            ) : selectedOutput.status === "failed" ? (
+              <div className="h-full flex flex-col items-center justify-center bg-white">
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
+                  <svg
+                    className="w-8 h-8 text-red-500"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
+                  </svg>
+                </div>
+                <p className="text-lg font-semibold text-gray-800 mb-2">
+                  팟캐스트 생성 실패
                 </p>
+                <p className="text-gray-500 text-center px-6">
+                  {selectedOutput.error_message ||
+                    "생성 중 오류가 발생했습니다."}
+                </p>
+                <button
+                  onClick={() => handleDeleteOutput(selectedOutput.id)}
+                  className="mt-4 px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
+                >
+                  삭제
+                </button>
               </div>
             ) : (
               <PodcastContents outputId={selectedOutput.id} />
@@ -225,8 +301,9 @@ const ProjectDetailPage = () => {
 
       {/* 리사이즈 바 */}
       <div
-        className={`w-1 bg-gray-200 hover:bg-blue-400 cursor-col-resize transition-colors ${isResizing ? 'bg-blue-500' : ''
-          }`}
+        className={`w-1 bg-gray-200 hover:bg-blue-400 cursor-col-resize transition-colors ${
+          isResizing ? "bg-blue-500" : ""
+        }`}
         onMouseDown={startResize}
       />
 
@@ -243,6 +320,7 @@ const ProjectDetailPage = () => {
           onGenerate={handleGenerated}
           selectedSourceIds={selectedSourceIds}
           projectId={projectId!}
+          onClearSelectedSources={() => setSelectedSourceIds([])} // 프로젝트 생성 시 선택 소스 초기화를 위함
         />
       </div>
     </div>

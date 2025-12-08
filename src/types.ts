@@ -16,4 +16,6 @@ export interface OutputContent {
   script_url?: string;
   script_path?: string;
   summary?: string;
+
+  error_message?: string;
 }
