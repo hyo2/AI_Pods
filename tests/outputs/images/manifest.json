@@ -1,0 +1,40 @@
+{
+  "total_images": 7,
+  "images": [
+    {
+      "image_id": "img_001",
+      "path": "outputs/images\\img_001.png",
+      "filename": "img_001.png"
+    },
+    {
+      "image_id": "img_002",
+      "path": "outputs/images\\img_002.png",
+      "filename": "img_002.png"
+    },
+    {
+      "image_id": "img_003",
+      "path": "outputs/images\\img_003.png",
+      "filename": "img_003.png"
+    },
+    {
+      "image_id": "img_005",
+      "path": "outputs/images\\img_005.png",
+      "filename": "img_005.png"
+    },
+    {
+      "image_id": "img_006",
+      "path": "outputs/images\\img_006.png",
+      "filename": "img_006.png"
+    },
+    {
+      "image_id": "img_007",
+      "path": "outputs/images\\img_007.png",
+      "filename": "img_007.png"
+    },
+    {
+      "image_id": "img_008",
+      "path": "outputs/images\\img_008.png",
+      "filename": "img_008.png"
+    }
+  ]
+}

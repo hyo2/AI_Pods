@@ -1,0 +1,213 @@
+[
+  {
+    "image_id": "img_001",
+    "image_title": "정보 과부하와 읽기 피로도",
+    "style": "Flat vector illustration",
+    "image_prompt": "정보 과부하와 읽기 피로도를 주제로 Flat vector illustration 스타일 이미지를 그려주세요. 책, PDF, 웹 아티클 더미에 파묻혀 지쳐있는 사람을 중앙에 배치하고, 주변에 'Time Crunch', 'Information Overload' 아이콘과 빠르게 돌아가는 시계를 넣어주세요. 한편, 출퇴근길에 편안하게 팟캐스트를 듣는 사람의 실루엣을 대비적으로 표현해주세요. 16:9 비율, 중앙 집중 구도, 밝고 균일한 조명, 밝고 선명한 색상 팔레트를 사용해주세요. 이미지 내 모든 텍스트는 반드시 영어로 표기해주세요.",
+    "visual_elements": [
+      "책, PDF, 웹 아티클 더미에 파묻혀 피곤해하는 사람",
+      "'Time Crunch' 아이콘",
+      "'Information Overload' 아이콘",
+      "빠르게 돌아가는 시계",
+      "출퇴근길에 편안하게 팟캐스트를 듣는 사람의 실루엣"
+    ],
+    "composition": "16:9 비율, 중앙 집중 구도로 피곤한 사람과 정보 더미를 중앙에 배치하고, 아이콘과 시계는 주변에 떠다니며, 팟캐스트 듣는 사람은 한쪽 구석에 실루엣으로 표현",
+    "lighting": "밝고 균일한 조명",
+    "color_usage": "밝고 선명한 색상 팔레트",
+    "primary_timestamp": "00:00:48",
+    "covered_timestamps": [
+      "00:00:33",
+      "00:00:48",
+      "00:01:06"
+    ],
+    "duration": 46
+  },
+  {
+    "image_id": "img_002",
+    "image_title": "타겟 청중의 페인 포인트",
+    "style": "Flat vector illustration",
+    "image_prompt": "Flat vector illustration 스타일로, 정보 통합의 어려움과 정보 과부하로 인한 고충을 겪는 세 명의 타겟 청중 캐릭터를 그려주세요. 중앙에는 논문 더미에 파묻혀 머리 위에 물음표 아이콘이 떠 있는 대학원생 캐릭터를 배치해주세요. 그 옆에는 수많은 보고서와 회의 자료에 둘러싸여 머리 위에 꼬인 실타래 아이콘이 있는 비즈니스 팀장 캐릭터를 그려주세요. 다른 한편에는 다양한 뉴스 소스(신문, 태블릿 등)를 앞에 두고 머리 위에 물음표 아이콘이 있는 뉴스 큐레이터 캐릭터를 표현해주세요. 각 캐릭터는 정보 처리의 어려움을 명확하게 보여주도록 해주세요. 밝고 균일한 조명 아래 16:9 비율의 중앙 집중 구도로 그려주세요. 이미지 내 모든 텍스트나 라벨은 반드시 영어로 표기해주세요.",
+    "visual_elements": [
+      "논문 더미에 파묻혀 머리 위에 물음표 아이콘이 있는 대학원생 캐릭터",
+      "보고서와 회의 자료에 둘러싸여 머리 위에 꼬인 실타래 아이콘이 있는 비즈니스 팀장 캐릭터",
+      "다양한 뉴스 소스(신문, 태블릿 등)를 앞에 두고 머리 위에 물음표 아이콘이 있는 뉴스 큐레이터 캐릭터",
+      "정보 처리의 어려움을 시각적으로 강조하는 요소들"
+    ],
+    "composition": "16:9 비율, 중앙 집중 구도",
+    "lighting": "밝고 균일한 조명",
+    "color_usage": "밝고 현대적인 색상 팔레트, 각 캐릭터를 돋보이게 하는 적절한 대비색 사용",
+    "primary_timestamp": "00:01:19",
+    "covered_timestamps": [
+      "00:01:19",
+      "00:01:38"
+    ],
+    "duration": 29
+  },
+  {
+    "image_id": "img_003",
+    "image_title": "AI 팟캐스트 생성 핵심 원리",
+    "style": "Flat vector illustration",
+    "image_prompt": "Flat vector illustration 스타일로 AI 팟캐스트 생성 핵심 원리를 보여주는 플로우 차트를 그려주세요. 좌측에는 'Web URL', 'PDF', 'DOCX' 아이콘이 있고, 이들이 중앙의 'Gemini API' 로고와 'AI Analysis' 아이콘으로 연결되는 화살표를 표현해주세요. 중앙의 AI 시스템은 입력된 문서들을 분석하는 과정을 나타냅니다. 이어서 우측에는 'TTS (Text-to-Speech)' 아이콘과 팟캐스트 마이크, 음성 파형 아이콘으로 변환되는 과정을 시각적으로 설명해주세요. 모든 라벨 및 다이어그램 내 텍스트는 **반드시 영어로 표기**해주세요. 밝고 균일한 조명과 16:9 비율의 중앙 집중 구도를 적용하고, 생동감 있는 현대적 색상 팔레트를 사용해주세요.",
+    "visual_elements": [
+      "Web URL icon",
+      "PDF icon",
+      "DOCX icon",
+      "Arrows pointing towards a central system",
+      "Gemini API logo",
+      "AI Analysis icon",
+      "TTS (Text-to-Speech) icon",
+      "Podcast microphone icon",
+      "Audio waveform icon",
+      "Flowchart diagram"
+    ],
+    "composition": "16:9 aspect ratio, central composition",
+    "lighting": "Bright and uniform lighting",
+    "color_usage": "Vibrant and modern color palette",
+    "primary_timestamp": "00:01:48",
+    "covered_timestamps": [
+      "00:01:48",
+      "00:02:10",
+      "00:02:19"
+    ],
+    "duration": 47
+  },
+  {
+    "image_id": "img_004",
+    "image_title": "두 AI 호스트의 대화 및 음성 제어",
+    "style": "Flat vector illustration",
+    "image_prompt": "Flat vector illustration 스타일로 두 AI 호스트가 대화하는 시스템을 시각화해주세요. 16:9 비율의 중앙 집중 구도로 두 AI 캐릭터(로봇 또는 아바타)가 마주보게 배치해주세요. 각 캐릭터의 말풍선 안에는 서로 다른 음성 파형과 함께 'Kore (Solid)', 'Puck (Lively)'와 같은 음성 스타일 라벨을 영어로 표시해주세요. 이미지 하단에는 'Tired and bored voice', 'Excited and happy voice'와 같은 자연어 프롬프트 입력창이 보이도록 해주세요. 밝고 균일한 조명과 청록색, 밝은 파랑색, 회색, 흰색 등의 밝고 현대적인 색상 팔레트를 사용해주세요. 이미지 내 모든 텍스트와 라벨은 반드시 영어로 표기되어야 합니다.",
+    "visual_elements": [
+      "두 AI 캐릭터 (로봇 또는 아바타)",
+      "음성 파형이 있는 말풍선",
+      "음성 스타일 라벨 (예: Kore (Solid), Puck (Lively))",
+      "자연어 프롬프트 입력창",
+      "프롬프트 예시 (예: Tired and bored voice, Excited and happy voice)"
+    ],
+    "composition": "16:9 비율의 중앙 집중 구도로 두 AI 캐릭터가 마주보게 배치",
+    "lighting": "밝고 균일한 조명",
+    "color_usage": "청록색, 밝은 파랑색, 회색, 흰색 등의 밝고 현대적인 색상 팔레트",
+    "primary_timestamp": "00:02:43",
+    "covered_timestamps": [
+      "00:02:35",
+      "00:02:43",
+      "00:03:03"
+    ],
+    "duration": 43
+  },
+  {
+    "image_id": "img_005",
+    "image_title": "LangGraph 기반 워크플로우 자동화",
+    "style": "Flat vector illustration",
+    "image_prompt": "Flat vector illustration 스타일로 LangGraph 기반의 AI 팟캐스트 생성 자동화 워크플로우를 그려주세요. 'Document Analysis', 'Script Generation', 'Speech Conversion', 'Audio Editing'과 같은 노드들이 화살표로 유기적으로 연결된 복잡한 다이어그램을 보여주세요. 이 모든 과정을 'LangGraph'라는 이름의 시스템이 감싸는 형태로 표현해주세요. 16:9 비율의 중앙 집중 구도와 밝고 균일한 조명을 적용하고, 현대적이고 깔끔한 색상 팔레트를 사용해주세요. 이미지 내의 모든 텍스트와 라벨은 반드시 영어로만 표기해주세요.",
+    "visual_elements": [
+      "노드 (Document Analysis, Script Generation, Speech Conversion, Audio Editing)",
+      "화살표",
+      "LangGraph 시스템"
+    ],
+    "composition": "16:9 비율, 중앙 집중 구도",
+    "lighting": "밝고 균일한 조명",
+    "color_usage": "현대적이고 깔끔한 색상 팔레트",
+    "primary_timestamp": "00:03:18",
+    "covered_timestamps": [
+      "00:03:18"
+    ],
+    "duration": 23
+  },
+  {
+    "image_id": "img_006",
+    "image_title": "기술의 기대 효과 및 활용 사례",
+    "style": "Flat vector illustration",
+    "image_prompt": "AI 팟캐스트 기술의 긍정적 효과를 보여주는 Flat vector illustration 이미지를 생성해주세요. 16:9 비율의 중앙 집중 구도로 세 개의 분할된 화면을 구성합니다. 첫 번째 화면에는 논문을 들으며 미소 짓는 대학원생 옆모습과 'EFFICIENCY' 라벨을, 두 번째 화면에는 보고서 오디오를 팀원과 공유하는 비즈니스 팀장과 'UNDERSTANDING' 라벨을, 세 번째 화면에는 출퇴근길 팟캐스트를 듣는 사람과 'PRODUCTIVITY' 라벨을 넣어주세요. 밝고 균일한 조명과 밝고 활기찬 색상 팔레트를 사용합니다. 이미지 내 모든 텍스트 라벨은 반드시 영어로만 표기되어야 합니다.",
+    "visual_elements": [
+      "논문을 들으며 미소 짓는 대학원생",
+      "보고서 오디오를 팀원과 공유하는 비즈니스 팀장",
+      "출퇴근길 팟캐스트를 듣는 사람",
+      "EFFICIENCY 텍스트 라벨",
+      "UNDERSTANDING 텍스트 라벨",
+      "PRODUCTIVITY 텍스트 라벨"
+    ],
+    "composition": "16:9 비율, 중앙 집중 구도, 세 개의 분할된 화면",
+    "lighting": "밝고 균일한 조명",
+    "color_usage": "밝고 활기찬 색상 팔레트",
+    "primary_timestamp": "00:03:49",
+    "covered_timestamps": [
+      "00:03:41",
+      "00:03:49",
+      "00:04:12"
+    ],
+    "duration": 40
+  },
+  {
+    "image_id": "img_007",
+    "image_title": "한국어 지원 및 다양한 활용",
+    "style": "Flat vector illustration",
+    "image_prompt": "Flat vector illustration 스타일로, 뉴스 큐레이터가 다양한 언어의 기술 아티클들을 AI 팟캐스트로 변환하여 듣는 모습을 그려주세요. 큐레이터는 헤드폰을 착용하고 있으며, 주변에는 여러 출처의 기술 아티클을 상징하는 아이콘들이 떠다니고, 오디오 웨이브폼이 시각적으로 표현됩니다. 화면 중앙에는 태극기 아이콘과 함께 'Full Korean Support'라는 영어 문구가 명확하게 강조되어야 합니다. 밝고 균일한 조명 아래 16:9 비율의 중앙 집중 구도로 배치해주세요. 이미지 내 모든 텍스트/라벨/다이어그램은 반드시 영어로만 표기해주세요.",
+    "visual_elements": [
+      "뉴스 큐레이터",
+      "다양한 언어의 기술 아티클 아이콘",
+      "AI 팟캐스트 오디오 웨이브폼",
+      "헤드폰",
+      "태극기 아이콘",
+      "'Full Korean Support' 영어 문구"
+    ],
+    "composition": "16:9 비율, 중앙 집중 구도",
+    "lighting": "밝고 균일한 조명",
+    "color_usage": "다채로운 색상 팔레트",
+    "primary_timestamp": "00:04:21",
+    "covered_timestamps": [
+      "00:04:21"
+    ],
+    "duration": 18
+  },
+  {
+    "image_id": "img_008",
+    "image_title": "기술 개발의 어려움과 개선 노력",
+    "style": "Flat vector illustration",
+    "image_prompt": "Flat vector illustration 스타일로 기술 개발의 어려움과 개선 노력을 시각화한 이미지를 생성해주세요. 16:9 화면 비율과 밝고 균일한 조명으로 중앙 집중 구도를 잡아주세요. 왼쪽에는 두 AI 호스트의 목소리 파형이 겹치거나 혼선되는 모습으로 인물별 목소리 분리 오류를 표현하고, 오른쪽에는 개발자가 컴퓨터 앞에서 코드를 디버깅하거나 문제 해결에 집중하는 모습을 그려주세요. 중앙 하단에는 'Improving', 'LangGraph Learning'이라는 영어 텍스트 라벨과 함께, 불안정한 파형이 점차 안정적인 그래프나 아이콘으로 변해가는 과정을 보여주세요. 주로 파란색, 녹색, 주황색, 회색 계열의 색상을 사용하여 기술적 어려움과 개선 노력을 대비시키고 현대적인 느낌을 강조해주세요. 이미지 내 모든 텍스트 라벨은 반드시 영어로 표기되어야 합니다.",
+    "visual_elements": [
+      "두 AI 호스트의 목소리 파형이 겹치거나 혼선되는 모습",
+      "개발자가 컴퓨터 앞에서 코드를 디버깅하거나 문제 해결에 집중하는 모습",
+      "화면이나 주변에 'Improving', 'LangGraph Learning'이라는 영어 텍스트 라벨",
+      "불안정한 파형이 점차 안정적인 그래프나 아이콘으로 변해가는 모습",
+      "기술적 난관을 상징하는 오류 아이콘",
+      "개선과 발전을 나타내는 긍정적인 아이콘"
+    ],
+    "composition": "16:9 화면 비율의 중앙 집중 구도로, 왼쪽에는 혼선된 AI 목소리 파형, 오른쪽에는 문제 해결에 집중하는 개발자, 그리고 중앙 하단에는 개선 과정을 나타내는 그래프와 키워드가 배치됩니다.",
+    "lighting": "밝고 균일한 조명으로 전체적인 장면이 명확하게 보입니다.",
+    "color_usage": "주로 파란색, 녹색, 주황색, 회색 계열의 색상을 사용하여 기술적 어려움(주황색, 빨간색)과 개선 노력(파란색, 녹색)을 대비시키고, 전체적으로 현대적이고 깔끔한 느낌을 줍니다.",
+    "primary_timestamp": "00:04:47",
+    "covered_timestamps": [
+      "00:04:39",
+      "00:04:47",
+      "00:05:20"
+    ],
+    "duration": 56
+  },
+  {
+    "image_id": "img_009",
+    "image_title": "미래의 지식 소비 방식",
+    "style": "Flat vector illustration",
+    "image_prompt": "Flat vector illustration 스타일로 미래의 지식 소비 방식을 보여주는 이미지를 그려주세요. 다양한 연령대의 사람들이 헤드폰을 착용하고 걷거나, 운동하거나, 편안하게 휴식하며 지식을 습득하는 모습을 중앙에 배치해주세요. 배경에는 유기적인 데이터 라인과 빛나는 정보 구름이 지식의 흐름을 상징하며 떠다니게 해주세요. 미래 지향적이고 긍정적인 분위기가 느껴지도록 밝고 균일한 조명으로 표현해주세요. 16:9 비율과 중앙 집중 구도를 사용해주세요. 주요 색상으로 밝은 파랑(#3366FF), 라임 그린(#66CC33), 밝은 노랑(#FFCC00), 오렌지(#FFA500) 계열을 사용하여 생동감을 더해주세요. 🔴 모든 이미지 내 텍스트/라벨/다이어그램은 반드시 영어로만 표기해주세요.",
+    "visual_elements": [
+      "다양한 연령대의 사람들",
+      "헤드폰",
+      "걷는 사람",
+      "운동하는 사람",
+      "휴식하는 사람",
+      "지식 습득",
+      "유기적인 데이터 라인",
+      "빛나는 정보 구름",
+      "미래 지향적 분위기",
+      "긍정적 분위기"
+    ],
+    "composition": "16:9 비율, 중앙 집중 구도",
+    "lighting": "밝고 균일한 조명",
+    "color_usage": "주요 색상: 밝은 파랑(#3366FF), 라임 그린(#66CC33), 밝은 노랑(#FFCC00), 오렌지(#FFA500), 보조 색상: 연한 회색(#E0E0E0), 흰색(#FFFFFF)",
+    "primary_timestamp": "00:05:35",
+    "covered_timestamps": [
+      "00:05:35",
+      "00:05:47"
+    ],
+    "duration": 45
+  }
+]

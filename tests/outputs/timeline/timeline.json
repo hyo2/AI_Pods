@@ -1,0 +1,56 @@
+[
+  {
+    "timestamp": "00:00:48",
+    "image_id": "img_001",
+    "duration": 46,
+    "end_timestamp": "00:01:34"
+  },
+  {
+    "timestamp": "00:01:19",
+    "image_id": "img_002",
+    "duration": 29,
+    "end_timestamp": "00:01:48"
+  },
+  {
+    "timestamp": "00:01:48",
+    "image_id": "img_003",
+    "duration": 47,
+    "end_timestamp": "00:02:35"
+  },
+  {
+    "timestamp": "00:02:43",
+    "image_id": "img_004",
+    "duration": 43,
+    "end_timestamp": "00:03:26"
+  },
+  {
+    "timestamp": "00:03:18",
+    "image_id": "img_005",
+    "duration": 23,
+    "end_timestamp": "00:03:41"
+  },
+  {
+    "timestamp": "00:03:49",
+    "image_id": "img_006",
+    "duration": 40,
+    "end_timestamp": "00:04:29"
+  },
+  {
+    "timestamp": "00:04:21",
+    "image_id": "img_007",
+    "duration": 18,
+    "end_timestamp": "00:04:39"
+  },
+  {
+    "timestamp": "00:04:47",
+    "image_id": "img_008",
+    "duration": 56,
+    "end_timestamp": "00:05:43"
+  },
+  {
+    "timestamp": "00:05:35",
+    "image_id": "img_009",
+    "duration": 45,
+    "end_timestamp": "00:06:20"
+  }
+]
