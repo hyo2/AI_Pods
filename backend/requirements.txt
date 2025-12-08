@@ -1,0 +1,55 @@
+# -----------------------------
+# FastAPI / Server
+# -----------------------------
+fastapi==0.121.2
+uvicorn==0.38.0
+python-multipart==0.0.20
+
+# -----------------------------
+# LangGraph / LangChain (이미 최신)
+# -----------------------------
+langgraph==1.0.4
+langchain==1.1.0
+langchain-core==1.1.0
+langchain-openai==1.0.3
+
+# -----------------------------
+# Google GenAI / Gemini
+# -----------------------------
+google-genai==1.52.0
+google-cloud-storage==2.19.0
+google-api-core==2.28.1
+google-auth==2.43.0
+google-auth-oauthlib==1.2.1
+google-cloud-aiplatform==1.75.0
+
+# -----------------------------
+# File Parsing / NLP Utilities
+# -----------------------------
+python-docx==1.2.0
+pypdf==6.3.0
+pdfplumber==0.11.4
+beautifulsoup4==4.14.2
+pillow==11.0.0
+
+# -----------------------------
+# Network
+# -----------------------------
+requests==2.32.5
+httpx==0.28.1
+
+# -----------------------------
+# Supabase
+# -----------------------------
+supabase==2.24.0
+
+# -----------------------------
+# Auth / Env
+# -----------------------------
+python-dotenv==1.2.1
+python-jose[cryptography]
+
+# -----------------------------
+# Other (미리 설치되어 있음)
+# -----------------------------
+typing-extensions
