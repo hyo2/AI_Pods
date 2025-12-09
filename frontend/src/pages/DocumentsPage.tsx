@@ -229,9 +229,10 @@ const DocumentsPage = () => {
       console.error("업로드 실패:", err);
       setErrorMessage("업로드 중 오류가 발생했습니다.");
     }
-  };  // handleSubmit 함수 끝
+  }; // handleSubmit 함수 끝
 
-  return (  // DocumentsPage 컴포넌트의 return
+  return (
+    // DocumentsPage 컴포넌트의 return
     <div className="p-8 max-w-7xl mx-auto">
       {/* Header */}
       <div className="mb-8">
@@ -241,34 +242,39 @@ const DocumentsPage = () => {
 
       {/* Upload Box */}
       <div
-        className={`rounded-xl border-2 border-dashed p-12 text-center transition-all duration-200 ${isDragging
-          ? "border-blue-500 bg-blue-50 transform scale-105 shadow-lg"
-          : "bg-white border-gray-300 hover:border-gray-400 hover:bg-gray-50"
-          }`}
+        className={`rounded-xl border-2 border-dashed p-12 text-center transition-all duration-200 ${
+          isDragging
+            ? "border-blue-500 bg-blue-50 transform scale-105 shadow-lg"
+            : "bg-white border-gray-300 hover:border-gray-400 hover:bg-gray-50"
+        }`}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
         onDragLeave={handleDragLeave}
       >
         <div className="max-w-md mx-auto">
           <div
-            className={`w-16 h-16 mx-auto mb-4 rounded-xl flex items-center justify-center transition-all duration-200 ${isDragging ? "bg-blue-200 transform scale-110" : "bg-gray-100"
-              }`}
+            className={`w-16 h-16 mx-auto mb-4 rounded-xl flex items-center justify-center transition-all duration-200 ${
+              isDragging ? "bg-blue-200 transform scale-110" : "bg-gray-100"
+            }`}
           >
             <Upload
-              className={`w-8 h-8 transition-colors duration-200 ${isDragging ? "text-blue-600" : "text-gray-600"
-                }`}
+              className={`w-8 h-8 transition-colors duration-200 ${
+                isDragging ? "text-blue-600" : "text-gray-600"
+              }`}
             />
           </div>
 
           <h3
-            className={`text-lg font-semibold mb-2 transition-colors duration-200 ${isDragging ? "text-blue-600" : "text-gray-900"
-              }`}
+            className={`text-lg font-semibold mb-2 transition-colors duration-200 ${
+              isDragging ? "text-blue-600" : "text-gray-900"
+            }`}
           >
             {isDragging ? "✨ 파일을 놓으세요!" : "문서를 업로드하세요"}
           </h3>
           <p
-            className={`text-sm mb-4 transition-colors duration-200 ${isDragging ? "text-blue-600 font-semibold" : "text-gray-600"
-              }`}
+            className={`text-sm mb-4 transition-colors duration-200 ${
+              isDragging ? "text-blue-600 font-semibold" : "text-gray-600"
+            }`}
           >
             {isDragging
               ? "PDF, DOCX, TXT 파일만 가능합니다"
@@ -380,7 +386,9 @@ const DocumentsPage = () => {
                     key={h.name}
                     disabled={h.name === hosts.host2}
                   >
-                    {`${h.name}${h.name === hosts.host2 ? ' (호스트2 선택됨)' : ''}`}
+                    {`${h.name}${
+                      h.name === hosts.host2 ? " (호스트2 선택됨)" : ""
+                    }`}
                   </option>
                 ))}
               </select>
@@ -400,7 +408,9 @@ const DocumentsPage = () => {
                     key={h.name}
                     disabled={h.name === hosts.host1}
                   >
-                    {`${h.name}${h.name === hosts.host1 ? ' (호스트1 선택됨)' : ''}`}
+                    {`${h.name}${
+                      h.name === hosts.host1 ? " (호스트1 선택됨)" : ""
+                    }`}
                   </option>
                 ))}
               </select>
@@ -419,10 +429,11 @@ const DocumentsPage = () => {
               <button
                 key={style.id}
                 onClick={() => setSelectedStyle(style.id)}
-                className={`px-4 py-2 rounded-lg border ${selectedStyle === style.id
-                  ? "bg-blue-600 text-white border-blue-600"
-                  : "border-gray-300 text-gray-700 hover:bg-gray-100"
-                  }`}
+                className={`px-4 py-2 rounded-lg border ${
+                  selectedStyle === style.id
+                    ? "bg-blue-600 text-white border-blue-600"
+                    : "border-gray-300 text-gray-700 hover:bg-gray-100"
+                }`}
               >
                 {style.label}
               </button>

@@ -20,7 +20,7 @@ const ProjectDetailPage = () => {
   // Race Condition 방지용
   const [isFetchingOutputs, setIsFetchingOutputs] = useState(false);
 
-  const [projectTitle, setProjectTitle] = useState("프로젝트");
+  const [projectTitle, setProjectTitle] = useState("새 프로젝트");
   const [selectedSourceIds, setSelectedSourceIds] = useState<number[]>([]);
   const [rightPanelWidth, setRightPanelWidth] = useState(340); // 기본 340px
   const [isResizing, setIsResizing] = useState(false);
