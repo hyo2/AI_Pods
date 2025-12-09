@@ -82,7 +82,7 @@ VERTEX_AI_SERVICE_ACCOUNT_FILE=path/to/service-account.json
 GOOGLE_APPLICATION_CREDENTIALS=path/to/service-account.json
 
 # Frontend
-FRONTEND_URL=http://localhost:3000
+FRONTEND_URL=http://localhost:5173
 ```
 
 ### 3. 서버 실행
