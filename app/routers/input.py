@@ -68,6 +68,7 @@ async def submit_inputs(
             "title": url,
             "is_link": True,
             "link_url": url,
+            "is_main": True,          # 기본값
             "options": options if options else None,  # 빈 dict 대신 None
             "expires_at": expires_at.isoformat()
         }).execute()
@@ -99,6 +100,7 @@ async def submit_inputs(
                 "storage_path": storage_path,
                 "file_type": file.content_type,
                 "file_size": len(content),
+                "is_main": False,          # ✅ 기본값
                 "options": options if options else None,  # ✅ 빈 dict 대신 None
                 "expires_at": expires_at.isoformat()
             }).execute()

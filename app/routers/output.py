@@ -177,33 +177,47 @@ def delete_output(output_id: int):
 @router.post("/generate")
 async def generate_output(
     background_tasks: BackgroundTasks,
+
     project_id: int = Form(...),
     title: str = Form("새 팟캐스트"),
     input_content_ids: str = Form("[]"),
-    host1: str = Form(""),
+    main_input_id: int = Form(...),
+
+    host1: str = Form(...),
     host2: str = Form(""),
-    style: str = Form("default"),
+
+    # 선택값 – 없으면 기본값 사용
+    style: str = Form("lecture"),     # lecture | dialogue
+    duration: int = Form(5),           # 5 | 10 | 15
+    user_prompt: str = Form(""),
 ):
     try:
-        title = (title or "새 팟캐스트").strip()
         input_ids = json.loads(input_content_ids)
 
-        proj_res = supabase.table("projects").select("user_id").eq("id", project_id).single().execute()
-        user_id = proj_res.data["user_id"]
-
+        # output row 생성
         out_res = supabase.table("output_contents").insert({
             "project_id": project_id,
             "title": title,
             "input_content_ids": input_ids,
             "options": {
                 "host1": host1,
-                "host2": host2,
-                "style": style
+                "style": style,
+                "duration": duration,
+                "user_prompt": user_prompt,
             },
             "status": "processing",
         }).execute()
 
         output_id = out_res.data[0]["id"]
+
+        # 🔥 핵심: DB 기준 주/보조 소스 확정
+        supabase.table("input_contents").update({
+            "is_main": False
+        }).in_("id", input_ids).execute()
+
+        supabase.table("input_contents").update({
+            "is_main": True
+        }).eq("id", main_input_id).execute()
 
         background_tasks.add_task(
             process_langgraph_output,
@@ -213,20 +227,33 @@ async def generate_output(
             host1=host1,
             host2=host2,
             style=style,
-            user_id=user_id
+            duration=duration,
+            user_prompt=user_prompt,
+            user_id=out_res.data[0]["project_id"],
         )
 
         return {
             "output_id": output_id,
-            "status": "processing"
+            "status": "processing",
         }
 
     except Exception as e:
         print(e)
         raise HTTPException(status_code=500, detail="출력 생성 요청 실패")
+    
 
 # LangGraph 백그라운드 실행 및 결과 저장
-async def process_langgraph_output(project_id, output_id, input_ids, host1, host2, style, user_id):
+async def process_langgraph_output(
+    project_id,
+    output_id,
+    input_ids,
+    host1,
+    host2,
+    style,
+    duration,
+    user_prompt,
+    user_id,
+):
     """
     Storage에서 파일을 직접 다운로드하여 로컬 임시 파일로 저장 후 처리
     """
@@ -243,7 +270,7 @@ async def process_langgraph_output(project_id, output_id, input_ids, host1, host
         # 1) input_contents -> 실제 파일 소스 준비 (Storage에서 다운로드)
         rows = (
             supabase.table("input_contents")
-            .select("id, is_link, storage_path, link_url")
+            .select("id, is_link, storage_path, link_url, is_main")
             .in_("id", input_ids)
             .execute()
         )
@@ -251,12 +278,15 @@ async def process_langgraph_output(project_id, output_id, input_ids, host1, host
         if not rows.data:
             raise Exception("input_contents 조회 실패")
 
-        sources = []
+        main_sources = []
+        aux_sources = []
         
         for r in rows.data:
+            source_path = None
+
             if r["is_link"]:
                 # 링크는 그대로 사용
-                sources.append(r["link_url"])
+                source_path = r["link_url"]
                 print(f"link URL: {r['link_url'][:80]}...")
             else:
                 storage_path = r["storage_path"]
@@ -278,19 +308,27 @@ async def process_langgraph_output(project_id, output_id, input_ids, host1, host
                     with os.fdopen(temp_fd, 'wb') as f:
                         f.write(file_data)
                     
-                    sources.append(temp_path)
                     temp_files.append(temp_path)
+                    source_path = temp_path
                     
                     print(f"임시 파일: {temp_path}")
                     print(f"크기: {len(file_data):,} bytes")
-                    
+
                 except Exception as download_error:
                     print(f"Storage 다운로드 실패: {download_error}")
                     import traceback
                     traceback.print_exc()
                     raise Exception(f"Storage 접근 실패 ({storage_path}): {str(download_error)}")
 
-        print(f"\n총 {len(sources)}개 소스 준비 완료")
+            if r.get("is_main", True):
+                main_sources.append(source_path)
+            else:
+                aux_sources.append(source_path)
+
+        if not main_sources:
+            raise Exception("주 소스(main source)는 최소 1개 이상 필요합니다.")
+                
+        print(f"\n주 소스 : {len(main_sources)}개, 보조 소스 : {len(aux_sources)}개 소스 준비 완료")
         print(f"{'='*80}\n")
 
         """
@@ -301,13 +339,17 @@ async def process_langgraph_output(project_id, output_id, input_ids, host1, host
         """
         # 2) LangGraph 실행
         result = await run_langgraph(
-            sources=sources,
+            main_sources=main_sources,
+            aux_sources=aux_sources,
             project_id=google_project_id,
             region=google_region,
             sa_file=google_sa_file,
             host1=host1,
             host2=host2,
-            style=style
+            style=style,
+            duration=duration,
+            user_prompt=user_prompt,
+            output_id=output_id,
         )
 
         print("\n✅ LangGraph 실행 완료")
@@ -315,19 +357,8 @@ async def process_langgraph_output(project_id, output_id, input_ids, host1, host
         # 결과 추출
         audio_local = result["final_podcast_path"]
         script_local = result["transcript_path"]
-        image_local_paths = result["image_paths"]
-        image_plans = result["image_plans"]
-        timeline = result["timeline"]
-        metadata = result["metadata"]
 
-        for idx, plan in enumerate(image_plans, start=1):
-            setattr(plan, "image_index", idx)
-
-        summary_text = metadata.content.detailed_summary if hasattr(metadata, "content") else ""
-        title_text = (
-            getattr(metadata.content, "title", None)
-            or (image_plans[0].title if image_plans else "새 팟캐스트")
-        )
+        title_text = result.get("title") or "새 팟캐스트"
 
         print(f"Title: {title_text}")
 
@@ -357,17 +388,6 @@ async def process_langgraph_output(project_id, output_id, input_ids, host1, host
                 content_type="text/plain"
             )
 
-        uploaded_images = []
-        for image_id, local_path in image_local_paths.items():
-            with open(local_path, "rb") as f:
-                url = upload_bytes(
-                    f.read(),
-                    folder=f"user/{user_id}/project/{project_id}/outputs/images",
-                    filename=f"{output_id}_{image_id}.png",
-                    content_type="image/png"
-                )
-            uploaded_images.append((image_id, url))
-
         print(f"Storage에 Output 파일 업로드 완료")
 
         # 5) DB 업데이트: output_contents
@@ -391,61 +411,24 @@ async def process_langgraph_output(project_id, output_id, input_ids, host1, host
             except:
                 pass
 
-            # 이미지 삭제
-            for _, url in uploaded_images:
-                try:
-                    storage.remove([url])
-                except:
-                    pass
-
             return
+        
+        # 🔽 타임스탬프 포함 transcript 파일 읽기
+        try:
+            with open(script_local, "r", encoding="utf-8") as f:
+                transcript_text = f.read()
+        except Exception as e:
+            print("Transcript 파일 읽기 실패:", e)
+            transcript_text = result.get("script", "")
 
         # DB 업데이트 : output_contents 
         supabase.table("output_contents").update({
             "title": title_text,
-            "summary": summary_text,
             "status": "completed",
             "audio_path": audio_url,
             "script_path": script_url,
-            "script_text": result.get("script_text", ""),
-            "metadata": {
-                "image_count": len(image_local_paths)
-            }
+            "script_text": transcript_text,  # 🔥 타임스탬프 포함
         }).eq("id", output_id).execute()
-
-        # 6) DB 업데이트: output_images
-        #    FK 에러 / 중간 삭제에 대비해서 예외는 로깅만 하고 계속 진행
-        # output_images 저장
-        uploaded_dict = dict(uploaded_images)
-        timeline_map = {t.image_id: t for t in timeline}
-
-        for plan in image_plans:
-            image_id = plan.image_id
-
-            if image_id not in uploaded_dict or image_id not in timeline_map:
-                print(f"[output_images] '{image_id}'는 업로드/타임라인 정보가 없어 스킵")
-                continue
-
-            t = timeline_map[image_id]
-
-            try:
-                # output_id가 존재하는 상황에서만 insert
-                if not output_exists(output_id):
-                    print(f"[output_images] insert 직전에 output_id={output_id} 삭제 감지. 나머지 이미지 insert 스킵.")
-                    break
-
-                supabase.table("output_images").insert({
-                    "output_id": output_id,
-                    "img_index": getattr(plan, "image_index", 0),
-                    "img_path": uploaded_dict[image_id],
-                    "img_description": plan.description,
-                    "start_time": to_seconds(getattr(t, "start", getattr(t, "timestamp", None))),
-                    "end_time": to_seconds(getattr(t, "end", getattr(t, "end_timestamp", None))),
-                }).execute()
-
-            except Exception as img_err:
-                # FK 에러 등은 로깅만 하고 죽지 않도록 함
-                print(f"[output_images Insert Error] output_id={output_id}, image_id={image_id} → {img_err}")
 
         # 7) 프로젝트 이름 업데이트
         project_row = supabase.table("projects").select("title").eq("id", project_id).single().execute()

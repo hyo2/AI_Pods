@@ -20,13 +20,47 @@ def generate_korean_names() -> Tuple[str, str]:
     return host_name, guest_name
 
 
-def sanitize_tts_text(text: str, host_name: str = "", guest_name: str = "") -> str:
+def sanitize_tts_text(
+    text: str,
+    host_name: str = "",
+    guest_name: str | None = None
+) -> str:
     """TTS용 텍스트 정리"""
+
+    # 공백 정리
     text = re.sub(r"\s+", " ", text).strip()
-    text = re.sub(r'\[진행자\s*이름\]', host_name, text, flags=re.IGNORECASE)
-    text = re.sub(r'\[게스트\s*이름\]', guest_name, text, flags=re.IGNORECASE)
-    text = re.sub(r'[\x00-\x1f\x7f-\x9f\ufeff]', '', text)
+
+    # 진행자 이름 치환
+    text = re.sub(
+        r"\[진행자\s*이름\]",
+        host_name or "",
+        text,
+        flags=re.IGNORECASE
+    )
+
+    # 게스트 이름 치환 (None 안전 처리)
+    if guest_name:
+        text = re.sub(
+            r"\[게스트\s*이름\]",
+            guest_name,
+            text,
+            flags=re.IGNORECASE
+        )
+    else:
+        # 게스트 없는 경우 placeholder 제거
+        text = re.sub(
+            r"\[게스트\s*이름\]",
+            "",
+            text,
+            flags=re.IGNORECASE
+        )
+
+    # 제어 문자 제거
+    text = re.sub(r"[\x00-\x1f\x7f-\x9f\ufeff]", "", text)
+
+    # 허용 문자만 남기기
     text = re.sub(r"[^가-힣a-zA-Z0-9.,?! ]", "", text)
+
     return text.strip()
 
 

@@ -22,16 +22,12 @@ class TTSService:
     
     def __init__(self):
         self.model = GenerativeModel("gemini-2.5-flash-preview-tts")
-        self.speaker_map = {
-            "진행자": "Charon",
-            "게스트": "Puck"
-        }
     
     def generate_audio(
         self, 
         script: str, 
         host_name: str, 
-        guest_name: str
+        guest_name: str | None = None
     ) -> tuple[List[Dict[str, Any]], List[str]]:
         """
         스크립트를 TTS로 변환
@@ -69,7 +65,12 @@ class TTSService:
                 if not sanitized_content:
                     continue
                 
-                voice_name = self.speaker_map.get(speaker, "Charon")
+                if speaker == "진행자":
+                    voice_name = host_name
+                elif speaker == "게스트" and guest_name:
+                    voice_name = guest_name
+                else:
+                    voice_name = host_name
                 
                 # TTS 생성 (재시도 로직 포함)
                 audio_file = self._generate_single_audio(
