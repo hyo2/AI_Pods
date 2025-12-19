@@ -113,10 +113,37 @@ const ProjectDetailMobilePage = () => {
     }
   };
 
+  const handleDeleteInput = async (inputId: number) => {
+    if (
+      !window.confirm(
+        "이 파일을 삭제하시겠습니까?\n이미 생성된 팟캐스트에는 영향이 없습니다."
+      )
+    ) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/inputs/${inputId}`, {
+        method: "DELETE",
+      });
+
+      if (!res.ok) {
+        alert("삭제 실패");
+        return;
+      }
+
+      // UI 즉시 반영
+      setInputs((prev) => prev.filter((input) => input.id !== inputId));
+    } catch (err) {
+      console.error("삭제 실패:", err);
+      alert("파일 삭제 중 오류가 발생했습니다.");
+    }
+  };
+
   const handleCreateNew = () => {
     // 목소리 선택 화면으로 이동 (projectId 전달)
     navigate("/mobile/voice-selection", {
-      state: { projectId, existingInputs: inputs },
+      state: { projectId },
     });
   };
 
@@ -278,17 +305,27 @@ const ProjectDetailMobilePage = () => {
               {inputs.map((input) => (
                 <div
                   key={input.id}
-                  className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg"
+                  className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg group"
                 >
                   <FileText className="w-5 h-5 text-blue-600 flex-shrink-0" />
+
                   <span className="text-sm text-gray-900 flex-1 truncate">
                     {input.title}
                   </span>
+
                   {input.is_link && (
                     <span className="text-xs text-gray-500 bg-gray-200 px-2 py-0.5 rounded">
                       링크
                     </span>
                   )}
+
+                  {/* 삭제 버튼 */}
+                  <button
+                    onClick={() => handleDeleteInput(input.id)}
+                    className="opacity-0 group-hover:opacity-100 p-2 hover:bg-red-50 rounded-lg transition-all"
+                  >
+                    <Trash2 className="w-4 h-4 text-red-500" />
+                  </button>
                 </div>
               ))}
             </div>

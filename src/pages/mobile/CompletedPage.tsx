@@ -353,11 +353,11 @@ const CompletedPage = () => {
           </button>
 
           <button
-            onClick={() => navigate("/mobile/voice-selection")}
+            onClick={() => navigate(`/mobile/project/${projectId}`)}
             className="flex-1 py-3 border-2 border-gray-300 text-gray-700 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors"
           >
             <RefreshCw className="w-5 h-5" />
-            새로 만들기
+            프로젝트 상세로
           </button>
         </div>
       </div>

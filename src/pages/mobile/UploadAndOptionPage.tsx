@@ -5,15 +5,10 @@
  * ============================================================
  *
  * 핵심 개념:
- * 1. 프로젝트 자료실(projectInputs) - 서버에 이미 저장된 영구 데이터
- * 2. 신규 업로드 파일(uploadedFiles) - 이번에 추가할 파일들
- * 3. 주 소스(mainInputId) - 팟캐스트 생성의 중심이 되는 자료 1개 (필수)
- * 4. 보조 소스 - 주 소스 외 최대 3개까지 추가 가능
- *
- * 백엔드 요구사항:
- * - /outputs/generate에 main_input_id 필수 전달
- * - input_content_ids는 JSON string 형태
- * - 신규 파일은 먼저 /inputs/upload로 업로드 후 ID 획득
+ * 1. 모든 자료(기존 + 신규)를 하나의 리스트로 표시
+ * 2. 체크박스로 사용할 자료 선택 (최대 4개)
+ * 3. 선택된 자료 중 라디오로 주 소스 1개 선택 (필수)
+ * 4. 팟캐스트 설정 필수, 프롬프트 선택
  */
 
 import { useState, useRef, useEffect } from "react";
@@ -29,6 +24,7 @@ import {
   ChevronDown,
   ChevronUp,
   Link as LinkIcon,
+  CheckCircle2,
 } from "lucide-react";
 import { API_BASE_URL } from "../../lib/api";
 
@@ -36,21 +32,18 @@ import { API_BASE_URL } from "../../lib/api";
 // 타입 정의
 // ============================================================
 
-/** 업로드할 파일 인터페이스 */
-interface UploadedFile {
-  id: string; // 프론트엔드에서 관리하는 임시 ID
-  file?: File; // File 객체 (파일인 경우)
-  url?: string; // URL 문자열 (링크인 경우)
-  name: string; // 표시할 이름
+/** 통합 자료 아이템 (기존 + 신규) */
+interface SourceItem {
+  // 공통
+  id: string | number; // 기존: number(DB id), 신규: string(임시 id)
+  name: string;
   type: "pdf" | "docx" | "txt" | "pptx" | "url";
-  size?: number; // 파일 크기 (bytes)
-}
+  isExisting: boolean; // true: 기존 자료, false: 신규 업로드
 
-/** 기존 프로젝트 자료 인터페이스 */
-interface ProjectInput {
-  id: number; // 서버 DB의 input_contents.id
-  title: string;
-  created_at: string;
+  // 신규 파일 전용
+  file?: File;
+  url?: string;
+  size?: number;
 }
 
 const UploadAndOptionsPage = () => {
@@ -66,27 +59,21 @@ const UploadAndOptionsPage = () => {
   const selectedVoiceLabel =
     location.state?.selectedVoiceLabel || selectedVoice;
   const existingProjectId = location.state?.projectId;
-
   const userId = localStorage.getItem("user_id");
 
   // ============================================================
   // 상태 관리
   // ============================================================
 
-  /** 프로젝트에 이미 업로드된 자료 목록 */
-  const [projectInputs, setProjectInputs] = useState<ProjectInput[]>([]);
+  /** 모든 자료 통합 리스트 (기존 + 신규) */
+  const [allSources, setAllSources] = useState<SourceItem[]>([]);
 
-  /** 신규 업로드할 파일 목록 (아직 서버에 없음) */
-  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  /** 선택된 자료 ID들 (팟캐스트 생성에 사용할 자료) */
+  const [selectedSourceIds, setSelectedSourceIds] = useState<
+    (string | number)[]
+  >([]);
 
-  /** 기존 자료 중 선택된 ID들 */
-  const [selectedExistingIds, setSelectedExistingIds] = useState<number[]>([]);
-
-  /**
-   * 주 소스 ID (필수)
-   * - 기존 자료를 선택한 경우: input ID (number)
-   * - 신규 파일을 선택한 경우: 임시 ID (string)
-   */
+  /** 주 소스 ID (선택된 자료 중 1개 필수) */
   const [mainSourceId, setMainSourceId] = useState<string | number | null>(
     null
   );
@@ -95,7 +82,7 @@ const UploadAndOptionsPage = () => {
   const [duration, setDuration] = useState<number>(5);
   const [voiceStyle, setVoiceStyle] = useState<"single" | "dialogue">("single");
   const [prompt, setPrompt] = useState("");
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(true); // 기본 펼쳐진 상태
 
   /** UI 상태 */
   const [showAddModal, setShowAddModal] = useState(false);
@@ -114,7 +101,17 @@ const UploadAndOptionsPage = () => {
 
     fetch(`${API_BASE_URL}/inputs/list?project_id=${existingProjectId}`)
       .then((res) => res.json())
-      .then((json) => setProjectInputs(json.inputs ?? []))
+      .then((json) => {
+        const existingItems: SourceItem[] = (json.inputs ?? []).map(
+          (input: any) => ({
+            id: input.id,
+            name: input.title,
+            type: getFileTypeFromName(input.title),
+            isExisting: true,
+          })
+        );
+        setAllSources(existingItems);
+      })
       .catch((e) => console.error("기존 자료 불러오기 실패:", e));
   }, [existingProjectId]);
 
@@ -122,8 +119,8 @@ const UploadAndOptionsPage = () => {
   // 유틸리티 함수들
   // ============================================================
 
-  /** 파일 확장자로 타입 결정 */
-  const getFileType = (
+  /** 파일명에서 타입 추론 */
+  const getFileTypeFromName = (
     filename: string
   ): "pdf" | "docx" | "txt" | "pptx" | "url" => {
     const ext = filename.split(".").pop()?.toLowerCase();
@@ -131,31 +128,41 @@ const UploadAndOptionsPage = () => {
     if (ext === "docx" || ext === "doc") return "docx";
     if (ext === "txt") return "txt";
     if (ext === "pptx" || ext === "ppt") return "pptx";
+    if (filename.startsWith("http")) return "url";
     return "txt";
   };
 
   /** 파일 타입별 아이콘 */
   const getFileIcon = (type: string) => {
-    const iconClass = "w-10 h-10";
     switch (type) {
       case "pdf":
-        return <div className={`${iconClass} text-red-500 font-bold`}>PDF</div>;
+        return (
+          <div className="w-10 h-10 text-red-500 font-bold flex items-center justify-center">
+            PDF
+          </div>
+        );
       case "docx":
         return (
-          <div className={`${iconClass} text-blue-500 font-bold`}>DOC</div>
+          <div className="w-10 h-10 text-blue-500 font-bold flex items-center justify-center">
+            DOC
+          </div>
         );
       case "txt":
         return (
-          <div className={`${iconClass} text-gray-500 font-bold`}>TXT</div>
+          <div className="w-10 h-10 text-gray-500 font-bold flex items-center justify-center">
+            TXT
+          </div>
         );
       case "pptx":
         return (
-          <div className={`${iconClass} text-orange-500 font-bold`}>PPT</div>
+          <div className="w-10 h-10 text-orange-500 font-bold flex items-center justify-center">
+            PPT
+          </div>
         );
       case "url":
-        return <LinkIcon className={`${iconClass} text-green-500`} />;
+        return <LinkIcon className="w-10 h-10 text-green-500" />;
       default:
-        return <FileText className={iconClass} />;
+        return <FileText className="w-10 h-10" />;
     }
   };
 
@@ -178,17 +185,6 @@ const UploadAndOptionsPage = () => {
       alert("PDF, DOCX, TXT, PPTX 파일만 업로드 가능합니다.");
     }
 
-    // 최대 4개 제한
-    const totalCount =
-      uploadedFiles.length + validFiles.length + selectedExistingIds.length;
-    if (totalCount > 4) {
-      alert("최대 4개까지만 업로드 가능합니다.");
-      return validFiles.slice(
-        0,
-        4 - uploadedFiles.length - selectedExistingIds.length
-      );
-    }
-
     return validFiles;
   };
 
@@ -203,19 +199,20 @@ const UploadAndOptionsPage = () => {
     const validFiles = validateFiles(selected);
     if (validFiles.length === 0) return;
 
-    const newFiles: UploadedFile[] = validFiles.map((file) => ({
-      id: `file-${Date.now()}-${Math.random()}`, // 임시 ID
-      file,
+    const newItems: SourceItem[] = validFiles.map((file) => ({
+      id: `file-${Date.now()}-${Math.random()}`,
       name: file.name,
-      type: getFileType(file.name),
+      type: getFileTypeFromName(file.name),
+      isExisting: false,
+      file,
       size: file.size,
     }));
 
-    setUploadedFiles((prev) => [...prev, ...newFiles]);
+    setAllSources((prev) => [...prev, ...newItems]);
     setShowAddModal(false);
     setIsDragging(false);
     setUrlInput("");
-    e.target.value = ""; // 같은 파일 재선택 가능하도록
+    e.target.value = "";
   };
 
   /** 드래그 오버 */
@@ -233,15 +230,16 @@ const UploadAndOptionsPage = () => {
     const validFiles = validateFiles(dropped);
     if (validFiles.length === 0) return;
 
-    const newFiles: UploadedFile[] = validFiles.map((file) => ({
+    const newItems: SourceItem[] = validFiles.map((file) => ({
       id: `file-${Date.now()}-${Math.random()}`,
-      file,
       name: file.name,
-      type: getFileType(file.name),
+      type: getFileTypeFromName(file.name),
+      isExisting: false,
+      file,
       size: file.size,
     }));
 
-    setUploadedFiles((prev) => [...prev, ...newFiles]);
+    setAllSources((prev) => [...prev, ...newItems]);
     setShowAddModal(false);
     setUrlInput("");
 
@@ -257,74 +255,78 @@ const UploadAndOptionsPage = () => {
       return;
     }
 
-    const totalCount = uploadedFiles.length + 1 + selectedExistingIds.length;
-    if (totalCount > 4) {
-      alert("최대 4개까지만 업로드 가능합니다.");
-      return;
-    }
-
-    const newUrl: UploadedFile = {
+    const newItem: SourceItem = {
       id: `url-${Date.now()}`,
-      url: urlInput,
       name: urlInput,
       type: "url",
+      isExisting: false,
+      url: urlInput,
     };
 
-    setUploadedFiles([...uploadedFiles, newUrl]);
+    setAllSources((prev) => [...prev, newItem]);
     setUrlInput("");
     setShowAddModal(false);
   };
 
-  /** 파일 삭제 */
-  const removeFile = (id: string) => {
-    setUploadedFiles(uploadedFiles.filter((f) => f.id !== id));
+  /** 자료 삭제 (신규 업로드만 가능) */
+  const removeSource = (id: string | number) => {
+    const source = allSources.find((s) => s.id === id);
+
+    // 기존 자료는 삭제 불가
+    if (source?.isExisting) {
+      alert("기존 업로드 파일은 삭제할 수 없습니다. 선택 해제만 가능합니다.");
+      return;
+    }
+
+    setAllSources(allSources.filter((s) => s.id !== id));
+    setSelectedSourceIds(selectedSourceIds.filter((sid) => sid !== id));
+
     if (mainSourceId === id) {
       setMainSourceId(null);
     }
   };
 
-  /** 기존 자료 선택/해제 토글 */
-  const toggleExistingInput = (inputId: number) => {
-    if (selectedExistingIds.includes(inputId)) {
+  /** 자료 선택/해제 토글 */
+  const toggleSourceSelection = (id: string | number) => {
+    if (selectedSourceIds.includes(id)) {
       // 선택 해제
-      setSelectedExistingIds((prev) => prev.filter((id) => id !== inputId));
+      setSelectedSourceIds((prev) => prev.filter((sid) => sid !== id));
 
       // 주 소스로 선택되어 있었다면 해제
-      if (mainSourceId === inputId) {
+      if (mainSourceId === id) {
         setMainSourceId(null);
       }
     } else {
       // 선택
-      const totalCount = uploadedFiles.length + selectedExistingIds.length + 1;
-      if (totalCount > 4) {
+      if (selectedSourceIds.length >= 4) {
         alert("최대 4개까지만 선택 가능합니다.");
         return;
       }
-      setSelectedExistingIds((prev) => [...prev, inputId]);
+      setSelectedSourceIds((prev) => [...prev, id]);
     }
+  };
+
+  /** 주 소스 선택 (선택된 자료 중에서만 가능) */
+  const handleMainSourceSelect = (id: string | number) => {
+    if (!selectedSourceIds.includes(id)) {
+      alert("먼저 체크박스로 자료를 선택해주세요.");
+      return;
+    }
+    setMainSourceId(id);
   };
 
   // ============================================================
   // 팟캐스트 생성 메인 로직
   // ============================================================
   const handleSubmit = async () => {
-    // ============================
-    // 1️⃣ 유효성 검증
-    // ============================
-    const totalSources = uploadedFiles.length + selectedExistingIds.length;
-
-    if (totalSources === 0) {
-      alert("최소 1개 이상의 자료를 업로드해주세요.");
+    // 유효성 검증
+    if (selectedSourceIds.length === 0) {
+      alert("최소 1개 이상의 자료를 선택해주세요.");
       return;
     }
 
     if (!mainSourceId) {
       alert("주 소스를 하나 선택해주세요.");
-      return;
-    }
-
-    if (!prompt.trim()) {
-      alert("프롬프트를 입력해주세요.");
       return;
     }
 
@@ -339,9 +341,7 @@ const UploadAndOptionsPage = () => {
     try {
       let projectId = existingProjectId;
 
-      // ============================
-      // 2️⃣ 프로젝트 생성 (없는 경우만)
-      // ============================
+      // 1️⃣ 프로젝트 생성 (없는 경우만)
       if (!projectId) {
         const projectRes = await fetch(`${API_BASE_URL}/projects/create`, {
           method: "POST",
@@ -356,27 +356,31 @@ const UploadAndOptionsPage = () => {
         projectId = projectData.project.id;
       }
 
-      // ============================
-      // 3️⃣ 신규 파일 업로드
-      // ============================
+      // 2️⃣ 신규 파일 업로드
+      const selectedSources = allSources.filter((s) =>
+        selectedSourceIds.includes(s.id)
+      );
+      const newSources = selectedSources.filter((s) => !s.isExisting);
+      const existingSources = selectedSources.filter((s) => s.isExisting);
+
       let newInputIds: number[] = [];
       let uploadedMainInputId: number | null = null;
 
-      if (uploadedFiles.length > 0) {
+      if (newSources.length > 0) {
         const formData = new FormData();
         formData.append("user_id", userId!);
         formData.append("project_id", String(projectId));
 
         // URL 분리
-        const urls = uploadedFiles
-          .filter((f) => f.type === "url")
-          .map((f) => f.url);
+        const urls = newSources
+          .filter((s) => s.type === "url")
+          .map((s) => s.url);
         formData.append("links", JSON.stringify(urls));
 
         // 파일 추가
-        uploadedFiles
-          .filter((f) => f.file)
-          .forEach((f) => formData.append("files", f.file!));
+        newSources
+          .filter((s) => s.file)
+          .forEach((s) => formData.append("files", s.file!));
 
         // 업로드 API 호출
         const uploadRes = await fetch(`${API_BASE_URL}/inputs/upload`, {
@@ -391,32 +395,25 @@ const UploadAndOptionsPage = () => {
         const uploadData = await uploadRes.json();
         newInputIds = uploadData.inputs.map((i: any) => i.id);
 
-        // 🔑 주 소스가 신규 업로드 파일인 경우, 해당 input_id 찾기
+        // 🔑 주 소스가 신규 업로드 파일인 경우
         if (typeof mainSourceId === "string") {
-          const mainFileIndex = uploadedFiles.findIndex(
-            (f) => f.id === mainSourceId
-          );
-          if (mainFileIndex !== -1 && mainFileIndex < newInputIds.length) {
-            uploadedMainInputId = newInputIds[mainFileIndex];
+          const mainIndex = newSources.findIndex((s) => s.id === mainSourceId);
+          if (mainIndex !== -1 && mainIndex < newInputIds.length) {
+            uploadedMainInputId = newInputIds[mainIndex];
           }
         }
       }
 
-      // ============================
-      // 4️⃣ 모든 input_ids 합치기
-      // ============================
-      const allInputIds = [...selectedExistingIds, ...newInputIds];
+      // 3️⃣ 모든 input_ids 합치기
+      const existingIds = existingSources.map((s) => s.id as number);
+      const allInputIds = [...existingIds, ...newInputIds];
 
-      // ============================
-      // 5️⃣ main_input_id 결정
-      // ============================
+      // 4️⃣ main_input_id 결정
       let finalMainInputId: number;
 
       if (typeof mainSourceId === "number") {
-        // 기존 자료를 주 소스로 선택한 경우
         finalMainInputId = mainSourceId;
       } else if (uploadedMainInputId !== null) {
-        // 신규 파일을 주 소스로 선택한 경우
         finalMainInputId = uploadedMainInputId;
       } else {
         alert("주 소스 설정에 실패했습니다.");
@@ -424,15 +421,13 @@ const UploadAndOptionsPage = () => {
         return;
       }
 
-      // ============================
-      // 6️⃣ 팟캐스트 생성 요청
-      // ============================
+      // 5️⃣ 팟캐스트 생성 요청
       const generateForm = new FormData();
       generateForm.append("project_id", String(projectId));
       generateForm.append("input_content_ids", JSON.stringify(allInputIds));
-      generateForm.append("main_input_id", String(finalMainInputId)); // ✅ 필수!
+      generateForm.append("main_input_id", String(finalMainInputId));
       generateForm.append("host1", selectedVoice);
-      generateForm.append("host2", ""); // 현재 사용 안 함
+      generateForm.append("host2", "");
       generateForm.append(
         "style",
         voiceStyle === "dialogue" ? "explain" : "lecture"
@@ -451,9 +446,7 @@ const UploadAndOptionsPage = () => {
 
       const { output_id } = await genRes.json();
 
-      // ============================
-      // 7️⃣ 생성 중 화면으로 이동
-      // ============================
+      // 6️⃣ 생성 중 화면으로 이동
       navigate(`/mobile/generating/${output_id}`, {
         state: { projectId, outputId: output_id },
       });
@@ -464,18 +457,15 @@ const UploadAndOptionsPage = () => {
     }
   };
 
-  // ============================================================
-  // 계산된 값들
-  // ============================================================
-  const totalCount = uploadedFiles.length + selectedExistingIds.length;
-  const canAddMore = totalCount < 4;
+  // 업로드는 제한하지 않음
+  const canAddMore = true;
 
   // ============================================================
   // UI 렌더링
   // ============================================================
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col relative">
-      {/* ==================== Header ==================== */}
+      {/* Header */}
       <header className="bg-white border-b px-4 py-3 flex items-center sticky top-0 z-20">
         <button
           onClick={() => navigate(-1)}
@@ -486,7 +476,7 @@ const UploadAndOptionsPage = () => {
         <h1 className="text-lg font-bold ml-2">팟캐스트 설정</h1>
       </header>
 
-      {/* ==================== Content ==================== */}
+      {/* Content */}
       <div className="flex-1 overflow-y-auto p-4 pb-24">
         {/* 선택한 목소리 뱃지 */}
         <div className="bg-white border border-gray-200 rounded-xl p-3 mb-4 flex items-center justify-between">
@@ -504,145 +494,120 @@ const UploadAndOptionsPage = () => {
           </button>
         </div>
 
-        {/* ==================== 기존 프로젝트 자료 ==================== */}
-        {projectInputs.length > 0 && (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-4">
-            <h3 className="font-bold text-gray-900 mb-3">기존 업로드 파일</h3>
-            <p className="text-xs text-gray-600 mb-3">
-              이미 프로젝트에 저장된 자료를 재사용할 수 있습니다.
-            </p>
-            <div className="space-y-2">
-              {projectInputs.map((input) => {
-                const isChecked = selectedExistingIds.includes(input.id);
-                const isMain = mainSourceId === input.id;
-
-                return (
-                  <div
-                    key={input.id}
-                    className={`flex items-center gap-3 p-3 border rounded-lg transition-colors ${
-                      isChecked
-                        ? "border-blue-300 bg-blue-50"
-                        : "border-gray-200"
-                    }`}
-                  >
-                    {/* 체크박스 (선택/해제) */}
-                    <input
-                      type="checkbox"
-                      checked={isChecked}
-                      onChange={() => toggleExistingInput(input.id)}
-                      className="w-5 h-5 flex-shrink-0"
-                    />
-
-                    {/* 파일 아이콘 */}
-                    <FileText className="w-5 h-5 text-gray-400 flex-shrink-0" />
-
-                    {/* 파일 정보 */}
-                    <span className="text-sm text-gray-900 flex-1 truncate">
-                      {input.title}
-                    </span>
-
-                    {/* 주 소스 선택 라디오 (체크된 경우만 표시) */}
-                    {isChecked && (
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="radio"
-                          name="mainSource"
-                          checked={isMain}
-                          onChange={() => setMainSourceId(input.id)}
-                          className="w-5 h-5 flex-shrink-0"
-                        />
-                        {isMain && (
-                          <span className="text-xs text-blue-600 font-semibold">
-                            주 소스
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* ==================== 수업 자료 업로드 ==================== */}
+        {/* ==================== 수업 자료 선택 ==================== */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-4">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="font-bold text-gray-900 flex items-center gap-2">
-              📁 수업 자료 업로드
-            </h3>
+            <h3 className="font-bold text-gray-900">📁 수업 자료 선택</h3>
             <button
               onClick={() => setShowAddModal(true)}
               disabled={!canAddMore}
               className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               <Plus className="w-4 h-4" />
-              자료 추가
+              추가
             </button>
           </div>
 
-          <p className="text-xs text-gray-500 mb-3">
-            • 주 강의 자료는 <b>1개만</b> 선택할 수 있어요. 주 강의자료 중심으로
-            내용이 생성됩니다. <br />• 이번 생성에 사용할 자료는{" "}
-            <b>{totalCount}/4</b>개 선택됨
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
+            <p className="text-xs text-blue-900 leading-relaxed">
+              <b>📌 사용 방법</b>
+              <br />
+              1️⃣ 체크박스로 팟캐스트에 사용할 자료 선택 (최대 4개)
+              <br />
+              2️⃣ 선택한 자료 중{" "}
+              <b className="text-blue-600">주 강의 자료 1개</b>를 버튼으로 선택
+            </p>
+          </div>
+
+          <p className="text-xs text-gray-600 mb-3">
+            • 선택된 자료: <b>{selectedSourceIds.length}/4</b>개
+            {mainSourceId && " • 주 강의 자료 선택 완료 ✅"}
           </p>
 
-          {uploadedFiles.length === 0 ? (
-            <div className="text-center py-8 text-gray-500 text-sm">
-              자료를 추가해주세요
+          {/* 통합 자료 리스트 */}
+          {allSources.length === 0 ? (
+            <div className="text-center py-12 border-2 border-dashed border-gray-300 rounded-lg">
+              <FileText className="w-12 h-12 text-gray-400 mx-auto mb-2" />
+              <p className="text-gray-500 text-sm">자료를 추가해주세요</p>
             </div>
           ) : (
             <div className="space-y-2">
-              {uploadedFiles.map((file) => {
-                const isMain = mainSourceId === file.id;
+              {allSources.map((source) => {
+                const isSelected = selectedSourceIds.includes(source.id);
+                const isMain = mainSourceId === source.id;
 
                 return (
                   <div
-                    key={file.id}
-                    className={`flex items-center gap-3 p-3 rounded-lg border transition-colors ${
+                    key={source.id}
+                    className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-all ${
                       isMain
-                        ? "border-blue-400 bg-blue-50"
-                        : "border-gray-200 bg-gray-50"
+                        ? "border-blue-500 bg-blue-50 shadow-md"
+                        : isSelected
+                        ? "border-blue-300 bg-blue-50"
+                        : "border-gray-200 bg-white hover:border-gray-300"
                     }`}
                   >
-                    {/* 주 소스 선택 라디오 */}
+                    {/* 체크박스 (선택/해제) */}
                     <input
-                      type="radio"
-                      name="mainSource"
-                      checked={isMain}
-                      onChange={() => setMainSourceId(file.id)}
-                      className="w-5 h-5 flex-shrink-0"
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleSourceSelection(source.id)}
+                      className="w-5 h-5 flex-shrink-0 cursor-pointer"
                     />
 
                     {/* 파일 아이콘 */}
                     <div className="flex-shrink-0">
-                      {getFileIcon(file.type)}
+                      {getFileIcon(source.type)}
                     </div>
 
                     {/* 파일 정보 */}
                     <div className="flex-1 min-w-0">
                       <div className="font-medium text-gray-900 text-sm truncate">
-                        {file.name}
+                        {source.name}
                       </div>
-                      <div className="text-xs text-gray-500">
-                        {formatFileSize(file.size)}
+                      <div className="flex items-center gap-2 text-xs text-gray-500 mt-0.5">
+                        {source.isExisting ? (
+                          <span className="bg-gray-100 px-2 py-0.5 rounded">
+                            기존 파일
+                          </span>
+                        ) : (
+                          <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded">
+                            새 업로드
+                          </span>
+                        )}
+                        {source.size && (
+                          <span>{formatFileSize(source.size)}</span>
+                        )}
                       </div>
                     </div>
 
-                    {/* 주 소스 뱃지 */}
-                    {isMain && (
-                      <span className="text-xs bg-blue-600 text-white px-2 py-1 rounded font-semibold">
-                        주 소스
-                      </span>
+                    {/* 주 소스 라디오 (선택된 경우만) */}
+                    {isSelected && (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="mainSource"
+                          checked={isMain}
+                          onChange={() => handleMainSourceSelect(source.id)}
+                          className="w-5 h-5 flex-shrink-0 cursor-pointer"
+                        />
+                        {isMain && (
+                          <span className="text-xs bg-blue-600 text-white px-2 py-1 rounded font-semibold whitespace-nowrap">
+                            주 소스
+                          </span>
+                        )}
+                      </div>
                     )}
 
-                    {/* 삭제 버튼 */}
-                    <button
-                      onClick={() => removeFile(file.id)}
-                      className="p-2 hover:bg-red-50 rounded-lg transition-colors"
-                    >
-                      <Trash2 className="w-5 h-5 text-red-500" />
-                    </button>
+                    {/* 삭제 버튼 (신규 업로드만) */}
+                    {!source.isExisting && (
+                      <button
+                        onClick={() => removeSource(source.id)}
+                        className="p-2 hover:bg-red-50 rounded-lg transition-colors"
+                      >
+                        <Trash2 className="w-5 h-5 text-red-500" />
+                      </button>
+                    )}
                   </div>
                 );
               })}
@@ -650,36 +615,18 @@ const UploadAndOptionsPage = () => {
           )}
 
           <p className="text-xs text-gray-500 mt-3">
-            💡 지원 형식: PDF, DOCX, TXT, PPTX
+            💡 지원 형식: PDF, DOCX, TXT, PPTX, URL
           </p>
         </div>
 
-        {/* ==================== 프롬프트 입력 (필수) ==================== */}
+        {/* ==================== 팟캐스트 설정 (필수) ==================== */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-4">
-          <label className="text-sm font-bold text-gray-900 mb-2 flex items-center gap-1">
-            <Edit3 className="w-4 h-4" />
-            프롬프트 입력 <span className="text-red-500">*</span>
-          </label>
-          <p className="text-xs text-gray-600 mb-3">
-            💡 프롬프트 내용이 참고 설정(길이·스타일)보다 우선 적용됩니다
-          </p>
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="예: 역사 자료에서 조선시대 부분으로만 만들어줘"
-            className="w-full px-4 py-3 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-            rows={4}
-          />
-        </div>
-
-        {/* ==================== 참고 설정 (선택) ==================== */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
           <button
             onClick={() => setShowAdvanced(!showAdvanced)}
             className="w-full flex items-center justify-between"
           >
-            <h3 className="text-sm font-bold text-gray-900">
-              참고 설정 (선택)
+            <h3 className="text-sm font-bold text-gray-900 flex items-center gap-1">
+              팟캐스트 설정 <span className="text-red-500">*</span>
             </h3>
             {showAdvanced ? (
               <ChevronUp className="w-5 h-5 text-gray-500" />
@@ -690,10 +637,6 @@ const UploadAndOptionsPage = () => {
 
           {showAdvanced && (
             <div className="mt-4 space-y-4">
-              <p className="text-xs text-gray-500">
-                기본값: 길이 5분, 강의형 스타일
-              </p>
-
               {/* 팟캐스트 길이 */}
               <div>
                 <label className="text-sm font-semibold text-gray-700 mb-2 block">
@@ -779,6 +722,24 @@ const UploadAndOptionsPage = () => {
           )}
         </div>
 
+        {/* ==================== 프롬프트 입력 (선택) ==================== */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-4">
+          <label className="text-sm font-bold text-gray-900 mb-2 flex items-center gap-1">
+            <Edit3 className="w-4 h-4" />
+            프롬프트 입력 (선택)
+          </label>
+          <p className="text-xs text-gray-600 mb-3">
+            💡 프롬프트를 입력하면 팟캐스트 설정보다 우선 적용됩니다.
+          </p>
+          <textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder="예: 조선시대 부분만 중심으로 만들어줘"
+            className="w-full px-4 py-3 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            rows={4}
+          />
+        </div>
+
         <p className="text-xs text-gray-500 text-center mt-4">
           예상시간: 3~5분 소요
         </p>
@@ -789,7 +750,7 @@ const UploadAndOptionsPage = () => {
         <button
           onClick={handleSubmit}
           disabled={
-            isSubmitting || totalCount === 0 || !prompt.trim() || !mainSourceId
+            isSubmitting || selectedSourceIds.length === 0 || !mainSourceId
           }
           className="w-full bg-blue-600 text-white py-4 rounded-xl font-semibold text-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
