@@ -184,7 +184,7 @@ async def generate_output(
     main_input_id: int = Form(...),
 
     host1: str = Form(...),
-    host2: str = Form(""),
+    host2: str = Form(""), # 비어있는 채로 감. <- ✨ 없애는 방향으로 수정하기
 
     # 선택값 – 없으면 기본값 사용
     style: str = Form("lecture"),     # lecture | dialogue
@@ -204,26 +204,19 @@ async def generate_output(
                 "style": style,
                 "duration": duration,
                 "user_prompt": user_prompt,
+                "main_input_id": main_input_id,  # ✅ 주 강의 자료 id
             },
             "status": "processing",
         }).execute()
 
         output_id = out_res.data[0]["id"]
 
-        # 🔥 핵심: DB 기준 주/보조 소스 확정
-        supabase.table("input_contents").update({
-            "is_main": False
-        }).in_("id", input_ids).execute()
-
-        supabase.table("input_contents").update({
-            "is_main": True
-        }).eq("id", main_input_id).execute()
-
         background_tasks.add_task(
             process_langgraph_output,
             project_id=project_id,
             output_id=output_id,
             input_ids=input_ids,
+            main_input_id=main_input_id,  # ✅ 주 강의 자료 id
             host1=host1,
             host2=host2,
             style=style,
@@ -247,6 +240,7 @@ async def process_langgraph_output(
     project_id,
     output_id,
     input_ids,
+    main_input_id,  # ✅ 주 강의자료
     host1,
     host2,
     style,
@@ -261,6 +255,7 @@ async def process_langgraph_output(
     
     try:
         print(f"LangGraph 처리 시작 (Output ID: {output_id})")
+        print(f"주 소스 ID: {main_input_id}")  # ✅ 로그 추가
 
         # 생성 직후 삭제된 경우를 초반에 한 번 체크
         if not output_exists(output_id):
@@ -320,13 +315,16 @@ async def process_langgraph_output(
                     traceback.print_exc()
                     raise Exception(f"Storage 접근 실패 ({storage_path}): {str(download_error)}")
 
-            if r.get("is_main", True):
+            # ✅ main_input_id와 비교하여 주 소스/보조 소스 분류
+            if r["id"] == main_input_id:
                 main_sources.append(source_path)
+                print(f"✅ 주 소스로 추가: {source_path}")
             else:
                 aux_sources.append(source_path)
+                print(f"📎 보조 소스로 추가: {source_path}")
 
         if not main_sources:
-            raise Exception("주 소스(main source)는 최소 1개 이상 필요합니다.")
+            raise Exception(f"주 소스(main_input_id={main_input_id})를 찾을 수 없습니다.")
                 
         print(f"\n주 소스 : {len(main_sources)}개, 보조 소스 : {len(aux_sources)}개 소스 준비 완료")
         print(f"{'='*80}\n")

@@ -16,7 +16,7 @@ async def run_langgraph(
     region: str,
     sa_file: str,
     host1: str,
-    host2: str,
+    host2: str, # 없애는 방향으로 수정하기
     style: str = "explain",
     duration: int = 5,
     user_prompt: str = "",

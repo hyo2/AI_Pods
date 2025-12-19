@@ -13,8 +13,8 @@ def get_voices():
         # Supabase에서 tts_voice 테이블 조회
         res = (
             supabase.table("tts_voice")
-            .select("name, gender")
-            .order("name", desc=False)
+            .select("name, ko_name, gender, description, sample_path")
+            .order("ko_name", desc=False)
             .execute()
         )
 

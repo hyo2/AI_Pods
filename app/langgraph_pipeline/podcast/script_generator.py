@@ -30,6 +30,10 @@ def _extract_json_from_llm(text: str) -> dict:
         raise ValueError("LLM 출력에서 JSON 블록을 찾을 수 없음")
 
     json_text = match.group().strip()
+
+    # 🔥 추가: 개행 강제 escape
+    json_text = json_text.replace("\n", "\\n")
+    
     return json.loads(json_text)
 
 
@@ -142,8 +146,9 @@ class ScriptGenerator:
             except Exception as e:
                 logger.error(f"JSON 파싱 실패. 원본 출력 미리보기:\n{raw_text[:500]}")
 
-                # 🔥 fallback: JSON 실패 시 스크립트라도 살린다
-                title = "자동 생성된 팟캐스트"
+                # 🔥 fallback: JSON 실패 시 생성 title, 스크립트라도 살림
+                title_match = re.search(r'"title"\s*:\s*"([^"]+)"', raw_text)
+                title = title_match.group(1) if title_match else "새 팟캐스트"
                 script_text = raw_text.strip()
 
                 logger.warning("JSON 파싱 실패 → raw_text를 스크립트로 사용합니다.")
