@@ -1,4 +1,4 @@
-# app/langgraph_pipeline/podcast/prompt_service.py
+# app/services/podcast/prompt_service.py
 import logging
 from typing import Dict, Optional, List
 

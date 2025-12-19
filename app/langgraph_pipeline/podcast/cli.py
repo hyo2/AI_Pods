@@ -1,4 +1,4 @@
-# app/service/cli.py
+# app/langgraph_pipeline/podcast/cli.py 근데 이제 cli 는 필요없지 않나?
 import os
 import sys
 import argparse
@@ -11,7 +11,7 @@ sys.path.insert(0, project_root)
 print(f"🔍 Python path: {sys.path[0]}")  # 디버그
 print(f"🔍 Current dir: {current_dir}")  # 디버그
 
-from app.services.podcast import run_podcast_generation
+from app.langgraph_pipeline.podcast import run_podcast_generation
 
 if __name__ == "__main__":
     print("✓ CLI 시작")  # 디버그

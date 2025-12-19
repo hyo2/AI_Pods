@@ -8,7 +8,7 @@ from google.oauth2 import service_account
 from vertexai.generative_models import GenerativeModel
 import vertexai
 
-# [Supabase] 프로젝트의 Supabase 서비스 파일 경로에 맞춰 수정하세요.
+# [Supabase] 프로젝트 구조에 맞춰 임포트
 from app.services.supabase_service import supabase 
 from .prompt_service import PromptTemplateService
 
@@ -21,19 +21,19 @@ def _extract_json_from_llm(text: str) -> dict:
     - ```json 코드블록 제거
     - 가장 바깥 {} 블록 추출
     """
-    # 코드블록 제거
+    # 1. 코드블록 마크다운 제거 (```json, ```)
     cleaned = re.sub(r"```json|```", "", text, flags=re.IGNORECASE).strip()
 
-    # 가장 바깥 JSON 블록 찾기
+    # 2. 가장 바깥쪽 중괄호 {} 찾기
     match = re.search(r"\{.*\}", cleaned, re.DOTALL)
     if not match:
-        raise ValueError("LLM 출력에서 JSON 블록을 찾을 수 없음")
+        # JSON 블록을 못 찾았을 경우, 텍스트 전체가 JSON일 수도 있으니 시도
+        try:
+            return json.loads(cleaned)
+        except:
+            raise ValueError("LLM 출력에서 JSON 블록을 찾을 수 없습니다.")
 
     json_text = match.group().strip()
-
-    # 🔥 추가: 개행 강제 escape
-    json_text = json_text.replace("\n", "\\n")
-    
     return json.loads(json_text)
 
 
@@ -60,12 +60,16 @@ class ScriptGenerator:
 
         credentials = self._load_credentials()
         
-        vertexai.init(
-            project=self.project_id, 
-            location=self.region, 
-            credentials=credentials
-        )
-        logger.info(f"Vertex AI 초기화 완료: {self.project_id} / {self.region}")
+        try:
+            vertexai.init(
+                project=self.project_id, 
+                location=self.region, 
+                credentials=credentials
+            )
+            logger.info(f"Vertex AI 초기화 완료: {self.project_id} / {self.region}")
+        except Exception as e:
+            logger.error(f"Vertex AI 초기화 실패: {e}")
+            raise
     
     def _load_credentials(self):
         """서비스 계정 인증 정보 로드"""
@@ -106,11 +110,11 @@ class ScriptGenerator:
         combined_text: str, 
         host_name: str, 
         guest_name: str,
-        duration: int = 5,           # 기본값 5분
-        user_prompt: str = ""        # 사용자 추가 요청
-    ) -> str:
+        duration: int = 5,          # 기본값 5분
+        user_prompt: str = ""       # 사용자 추가 요청
+    ) -> dict:
         """팟캐스트 스크립트 생성"""
-        # 환경 변수에서 모델명 가져오기
+        # 환경 변수에서 모델명 가져오기 (기본값: gemini-2.0-flash-exp)
         model_name = os.getenv("VERTEX_AI_MODEL_TEXT", "gemini-2.0-flash-exp")
         
         logger.info(f"모델 사용: {model_name} / 목표 시간: {duration}분")
@@ -132,27 +136,33 @@ class ScriptGenerator:
         try:
             logger.info("LLM 스크립트 생성 요청 중...")
             response = model.generate_content(final_prompt, generation_config=config)
-            raw_text = getattr(response, "text", "")
+            
+            # [핵심 수정 부분] response.text 대신 Parts를 순회하며 텍스트 추출
+            # 이유: Gemini가 긴 응답을 여러 Part로 나누어 보낼 때 response.text 접근 시 에러 발생
+            raw_text = ""
+            if response.candidates:
+                candidate = response.candidates[0]
+                if hasattr(candidate.content, 'parts'):
+                    for part in candidate.content.parts:
+                        if part.text:
+                            raw_text += part.text
             
             if not raw_text:
-                raise RuntimeError("모델이 텍스트를 반환하지 않았습니다")
-            
+                logger.error(f"모델 응답 텍스트 없음. 응답 객체: {response}")
+                raise RuntimeError("모델이 빈 텍스트를 반환했습니다. (Safety Filter 가능성)")
             
             # JSON 파싱
             try:
                 data = _extract_json_from_llm(raw_text)
-                title = data["title"].strip()
-                script_text = data["script"].strip()
+                title = data.get("title", "제목 없음").strip()
+                script_text = data.get("script", "").strip()
             except Exception as e:
                 logger.error(f"JSON 파싱 실패. 원본 출력 미리보기:\n{raw_text[:500]}")
 
-                # 🔥 fallback: JSON 실패 시 생성 title, 스크립트라도 살림
-                title_match = re.search(r'"title"\s*:\s*"([^"]+)"', raw_text)
-                title = title_match.group(1) if title_match else "새 팟캐스트"
+                # Fallback: JSON 실패 시 전체 텍스트를 스크립트로 간주
+                title = "자동 생성된 팟캐스트"
                 script_text = raw_text.strip()
-
                 logger.warning("JSON 파싱 실패 → raw_text를 스크립트로 사용합니다.")
-
 
             # 스크립트 후처리
             script_text = self._clean_script(script_text)
@@ -160,11 +170,9 @@ class ScriptGenerator:
             logger.info(f"제목 생성 완료: {title}")
             logger.info(f"스크립트 길이: {len(script_text)}자")
 
-            logger.info(f"스크립트 생성 완료 (스타일: {self.style}, 길이: {len(script_text)}자)")
-
             return {
                 "title": title,
-                "script": script_text.strip()
+                "script": script_text
             }
             
         except Exception as e:
@@ -184,10 +192,10 @@ class ScriptGenerator:
         chars_per_min = 500
         target_chars = duration * chars_per_min
         
-        # 3. [핵심 수정] 지시사항 생성 (주/보조 소스 처리 방법 포함)
+        # 3. 지시사항 생성
         instruction_block = (
             f"First, generate a concise and engaging TITLE for this podcast.\n"
-            f"Then, write a script suitable for a **{duration}-minute conversation/lecture**.\n"
+            f"Then, write a script suitable for a **{duration}-minute** session.\n"
             f"\n"
             f"OUTPUT FORMAT (IMPORTANT):\n"
             f"Respond strictly in valid JSON format as follows:\n"
@@ -196,22 +204,12 @@ class ScriptGenerator:
             f'  "script": "전체 팟캐스트 스크립트"\n'
             f"}}\n"
             f"\n"
-            f"IMPORTANT RULES:\n"
-            f"- Output ONLY valid JSON.\n"
-            f"- Do NOT include explanations, markdown, or code blocks.\n"
-            f"- Do NOT include any text before or after the JSON.\n"
-            f"Script requirements:\n"
-            f"   - Target length: Approximately **{target_chars} Korean characters**.\n"
-            f"   - **Source Handling Instructions:**\n"
-            f"     The text below is divided into '[MAIN SOURCE]' and '[AUXILIARY SOURCE]'.\n"
-            f"     1. **[MAIN SOURCE]:** This is the CORE topic. Dedicate 80-90% of the script to explaining this content.\n"
-            f"     2. **[AUXILIARY SOURCE]:** Use this ONLY for supporting details, definitions, examples, or context. Do not make it the main topic.\n"
+            f"Target length: Approximately **{target_chars} Korean characters**.\n"
         )
 
         # 4. 사용자 추가 요청 반영
         if user_prompt and user_prompt.strip():
-            instruction_block += f"\n   - **USER SPECIAL REQUEST:** {user_prompt}\n"
-            instruction_block += f"   (Please reflect the user's request above explicitly in the script tone or content.)"
+            instruction_block += f"\n - **USER SPECIAL REQUEST:** {user_prompt}\n"
         
         return self.user_prompt_template.format(
             combined_text=combined_text,
@@ -222,12 +220,17 @@ class ScriptGenerator:
     
     def _clean_script(self, script_text: str) -> str:
         """스크립트 텍스트 정리"""
+        # 코드블록 제거
         script_text = re.sub(
             r"```python|```json|```text|```|```markdown", 
             "", 
             script_text, 
             flags=re.IGNORECASE
         )
-        script_text = re.sub(r"[\*\U00010000-\U0010ffff]|#", "", script_text)
+        # 이모지 등 4바이트 문자 제거 (DB 저장 오류 방지), 단 *나 #은 유지 (강조용)
+        script_text = re.sub(r"[\U00010000-\U0010ffff]", "", script_text)
+        
+        # 과도한 줄바꿈 정리
         script_text = re.sub(r'\n{3,}', '\n\n', script_text)
+        
         return script_text.strip()
