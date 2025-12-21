@@ -4,7 +4,7 @@ from app.services.supabase_service import supabase
 
 router = APIRouter(prefix="/voices", tags=["voices"])
 
-@router.get("/")
+@router.get("")
 def get_voices():
     """
     TTS 목소리 전체 목록 조회
