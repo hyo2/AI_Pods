@@ -6,10 +6,7 @@ from app.services.supabase_service import supabase, upload_bytes, BUCKET
 from app.services.langgraph_service import run_langgraph, CancelledException
 from app.utils.output_helpers import output_exists
 
-# ⭐ 환경 변수는 로드하되, 체크는 하지 않음 (함수 실행 시점에 체크)
-google_project_id = os.getenv("VERTEX_AI_PROJECT_ID")
-google_region = os.getenv("VERTEX_AI_REGION")
-google_sa_file = os.getenv("VERTEX_AI_SERVICE_ACCOUNT_FILE")
+# ⭐ 모듈 레벨 변수 제거 - 함수 실행 시점에 읽도록 변경
 
 
 def update_output_step(output_id: int, current_step: str):
@@ -78,11 +75,20 @@ async def process_langgraph_output(
     """
     Storage에서 파일을 직접 다운로드하여 로컬 임시 파일로 저장 후 처리
     """
-    # ⭐ 함수 시작 시점에 체크 (모듈 로드가 아닌!)
+    # ⭐ 함수 시작 시점에 환경 변수 읽기 (모듈 로드 시점이 아닌!)
+    google_project_id = os.getenv("VERTEX_AI_PROJECT_ID")
+    google_region = os.getenv("VERTEX_AI_REGION")
+    google_sa_file = os.getenv("VERTEX_AI_SERVICE_ACCOUNT_FILE")
+    
     if not google_sa_file:
         raise RuntimeError(
             "❌ VERTEX_AI_SERVICE_ACCOUNT_FILE 환경 변수가 설정되지 않았습니다!\n"
             "vertex_env_patch.py가 실행되었는지 확인하세요."
+        )
+    
+    if not google_project_id or not google_region:
+        raise RuntimeError(
+            "❌ VERTEX_AI_PROJECT_ID 또는 VERTEX_AI_REGION 환경 변수가 설정되지 않았습니다!"
         )
     
     temp_files = []
@@ -90,14 +96,13 @@ async def process_langgraph_output(
     try:
         print(f"LangGraph 처리 시작 (Output ID: {output_id})")
         print(f"주 소스 ID: {main_input_id}")
+        print(f"Vertex AI Config: project={google_project_id}, region={google_region}, sa_file={google_sa_file}")
 
         update_output_step(output_id, "start")
 
         if not output_exists(output_id):
             print(f"[process_langgraph_output] 시작 시점에 output_id={output_id}가 이미 없음. 작업 중단.")
             return
-
-        # ... 나머지 코드는 기존과 동일 ...
 
         rows = (
             supabase.table("input_contents")
