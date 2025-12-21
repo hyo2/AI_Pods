@@ -35,7 +35,7 @@ class AudioProcessor:
         output_dir = "outputs/podcasts"
         os.makedirs(output_dir, exist_ok=True)
 
-        list_file_path = "concat_list.txt"
+        list_file_path = os.path.join(output_dir, "concat_list.txt")
         final_filename = os.path.join(output_dir,f"podcast_episode_{uuid.uuid4().hex[:8]}.mp3")
         # final_filename = f"podcast_episode_{uuid.uuid4().hex[:8]}.mp3"
         

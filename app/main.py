@@ -23,6 +23,15 @@ app = FastAPI(
 
 FRONTEND_URL = os.getenv("FRONTEND_URL")
 
+REQUIRED_DIRS = [
+    "outputs",
+    "outputs/podcasts",
+    "outputs/podcasts/wav",
+]
+
+for d in REQUIRED_DIRS:
+    os.makedirs(d, exist_ok=True)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[FRONTEND_URL] if FRONTEND_URL else ["*"],
