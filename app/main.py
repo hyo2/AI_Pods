@@ -4,9 +4,11 @@ load_dotenv()
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 import os
-from app.routers import auth,input, output, project, storage, voice
-from app.routers.project import router as projects_router
+
+from app.routers import auth, input, output, project, storage, voice
 
 app = FastAPI(
     title="AI Pods API",
@@ -14,22 +16,43 @@ app = FastAPI(
     version="1.0.0"
 )
 
-print("SUPABASE_URL loaded:", os.getenv("SUPABASE_URL"))
-print("FRONTEND_URL loaded:", os.getenv("FRONTEND_URL"))
-
 FRONTEND_URL = os.getenv("FRONTEND_URL")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_URL],
+    allow_origins=[FRONTEND_URL] if FRONTEND_URL else ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"]
 )
 
+# ======================
+# API routers
+# ======================
 app.include_router(auth.router, prefix="/api")
 app.include_router(project.router, prefix="/api")
 app.include_router(input.router, prefix="/api")
-app.include_router(output.router, prefix="/api") 
+app.include_router(output.router, prefix="/api")
 app.include_router(voice.router, prefix="/api")
 app.include_router(storage.router, prefix="/api")
+
+# ======================
+# Frontend (mobile only)
+# ======================
+
+# 1️⃣ Vite assets 서빙
+app.mount(
+    "/assets",
+    StaticFiles(directory="app/static/assets"),
+    name="assets"
+)
+
+# 2️⃣ /mobile → index.html
+@app.get("/mobile")
+def serve_mobile():
+    return FileResponse("app/static/index.html")
+
+# 3️⃣ /mobile/... (새로고침 대응)
+@app.get("/mobile/{path:path}")
+def serve_mobile_spa(path: str):
+    return FileResponse("app/static/index.html")
