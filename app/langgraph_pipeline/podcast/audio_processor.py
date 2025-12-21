@@ -11,16 +11,16 @@ logger = logging.getLogger(__name__)
 INTER_CHUNK_DELAY = 1.0
 
 
+def get_output_dir() -> str:
+    """환경에 맞는 출력 디렉토리 반환"""
+    base = os.getenv("BASE_OUTPUT_DIR", "outputs")
+    return os.path.join(base, "podcasts")
+
+
 class AudioProcessor:
     """오디오 파일 병합 및 처리"""
     
     def __init__(self, model_type: str = "google_cloud"):
-        """
-        AudioProcessor 초기화
-        
-        Args:
-            model_type: TTS 모델 타입 (google_cloud, elevenlabs 등)
-        """
         self.model_type = model_type
     
     @staticmethod
@@ -31,13 +31,12 @@ class AudioProcessor:
         
         logger.info(f"오디오 파일 {len(wav_files)}개 병합 중...")
         
-        # 저장 파일 경로 추가 - outputs의 podcast 폴더에 저장
-        output_dir = "outputs/podcasts"
+        # ✅ 환경 변수 기반 경로 사용
+        output_dir = get_output_dir()
         os.makedirs(output_dir, exist_ok=True)
 
         list_file_path = os.path.join(output_dir, "concat_list.txt")
-        final_filename = os.path.join(output_dir,f"podcast_episode_{uuid.uuid4().hex[:8]}.mp3")
-        # final_filename = f"podcast_episode_{uuid.uuid4().hex[:8]}.mp3"
+        final_filename = os.path.join(output_dir, f"podcast_episode_{uuid.uuid4().hex[:8]}.mp3")
         
         try:
             # FFmpeg concat 파일 생성
@@ -99,13 +98,12 @@ class AudioProcessor:
             
             current_time += item['duration'] + INTER_CHUNK_DELAY
         
-        # outputs의 podcast 폴더에 저장
-        output_dir = "outputs/podcasts"
+        # ✅ 환경 변수 기반 경로 사용
+        output_dir = get_output_dir()
         os.makedirs(output_dir, exist_ok=True)
 
         mp3_filename = os.path.basename(output_path).replace(".mp3", ".txt")
         transcript_path = os.path.join(output_dir, mp3_filename)
-        # transcript_path = output_path.replace(".mp3", ".txt")
         
         with open(transcript_path, "w", encoding="utf-8") as f:
             f.write("\n".join(transcript_lines))

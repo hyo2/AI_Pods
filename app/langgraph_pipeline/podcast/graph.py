@@ -8,7 +8,6 @@ from typing import List, Dict, Any
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
-# [상대 경로 import 유지]
 from .state import PodcastState
 from .metadata_generator_node import MetadataGenerator 
 from .script_generator import ScriptGenerator
@@ -18,11 +17,14 @@ from .audio_processor import AudioProcessor
 logger = logging.getLogger(__name__)
 
 
+def get_temp_output_dir() -> str:
+    """환경에 맞는 임시 출력 디렉토리 반환"""
+    base = os.getenv("BASE_OUTPUT_DIR", "outputs")
+    return base
+
+
 def extract_texts_node(state: PodcastState) -> PodcastState:
-    """
-    노드 1: MetadataGenerator를 사용하여 텍스트와 이미지 설명 추출
-    (파일 생성 -> 읽기 -> 파싱)
-    """
+    """노드 1: MetadataGenerator를 사용하여 텍스트와 이미지 설명 추출"""
     logger.info("메타데이터 생성 및 텍스트 추출 시작...")
     
     main_sources = state.get('main_sources', [])
@@ -36,45 +38,36 @@ def extract_texts_node(state: PodcastState) -> PodcastState:
         }
 
     try:
-        # 1. 파일 분류 
         primary_file = main_sources[0]
         supplementary_files = main_sources[1:] + aux_sources
         
         logger.info(f"Primary: {primary_file}, Supp: {len(supplementary_files)}개")
 
-        # 2. MetadataGenerator 실행
         generator = MetadataGenerator()
         
-        # [수정] 충돌 방지를 위해 임시 파일명 생성
-        temp_json_path = f"outputs/temp_metadata_{uuid.uuid4().hex[:8]}.json"
+        # ✅ 환경 변수 기반 경로 사용
+        output_dir = get_temp_output_dir()
+        temp_json_path = os.path.join(output_dir, f"temp_metadata_{uuid.uuid4().hex[:8]}.json")
         
-        # ✅ 수정: main_file -> primary_file, aux_files -> supplementary_files
         generated_path = generator.generate(
             primary_file=primary_file,
             supplementary_files=supplementary_files,
             output_path=temp_json_path
         )
         
-        # 3. 생성된 JSON 파일 읽기
         with open(generated_path, 'r', encoding='utf-8') as f:
             source_data = json.load(f)
             
-        # (옵션) 다 읽었으면 임시 파일 삭제 (로그 확인하려면 주석 처리)
         if os.path.exists(generated_path):
             os.remove(generated_path)
         
-        # 4. JSON 데이터 파싱 -> 텍스트 리스트로 변환
         main_texts = []
         aux_texts = []
         
-        # 4. JSON 데이터 파싱 -> 텍스트 리스트로 변환
-        # ✅ 주의: metadata_generator_node.py는 "primary_source", "supplementary_sources" 키 사용
-        # 4-1. Primary Source 처리
         primary = source_data.get("primary_source", {}) 
         if primary and "content" in primary:
             text = primary["content"].get("full_text", "")
             if text:
-                # 이미지 설명 추가
                 images = primary.get("filtered_images", [])
                 if images:
                     text += "\n\n=== [VISUAL CONTEXT] (Images in the document) ===\n"
@@ -85,7 +78,6 @@ def extract_texts_node(state: PodcastState) -> PodcastState:
                 
                 main_texts.append(text)
 
-        # 4-2. Supplementary Sources 처리
         supp_list = source_data.get("supplementary_sources", [])
         for supp in supp_list:
             text = supp.get("content", {}).get("full_text", "")
@@ -241,20 +233,16 @@ def run_podcast_generation(
     duration: int = 5,
     user_prompt: str = ""
 ) -> Dict[str, Any]:
-    """
-    팟캐스트 생성 메인 실행 함수
-    """
+    """팟캐스트 생성 메인 실행 함수"""
     if not project_id:
         raise ValueError("Google Cloud Project ID를 지정해야 합니다")
 
-    # 입력값이 없으면 기본값 사용
     host = host_name if host_name else "진행자"
     guest = guest_name if guest_name else "게스트"
 
     logger.info(f"진행자: {host}, 게스트: {guest}")
     logger.info(f"설정 - 스타일: {style}, 시간: {duration}분")
 
-    # 초기 상태 설정
     initial_state = {
         "main_sources": main_sources,
         "aux_sources": aux_sources,

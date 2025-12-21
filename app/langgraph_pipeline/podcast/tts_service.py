@@ -4,22 +4,27 @@ import re
 import time
 import uuid
 import logging
-import subprocess  # [추가] FFmpeg 호출용
+import subprocess
 from typing import List, Dict, Any
 from vertexai.generative_models import GenerativeModel
 from .utils import sanitize_tts_text, chunk_text, base64_to_bytes, pcm_to_wav
 
 logger = logging.getLogger(__name__)
 
-# [설정] 2.5 Flash 모델 사용
 MAX_RETRIES = 5           
 BASE_DELAY = 1.0          
 INTER_CHUNK_DELAY = 1.0   
 SPEAKER_TURN_DELAY = 0.5  
 
-# [설정] 학생 전용 목소리 및 피치 조절
 FIXED_STUDENT_VOICE = "Leda"
-STUDENT_PITCH_FACTOR = 1.15  # 1.25배 톤 높임 (숫자가 클수록 더 아이 같아짐)
+STUDENT_PITCH_FACTOR = 1.15
+
+
+def get_wav_output_dir() -> str:
+    """환경에 맞는 WAV 출력 디렉토리 반환"""
+    base = os.getenv("BASE_OUTPUT_DIR", "outputs")
+    return os.path.join(base, "podcasts", "wav")
+
 
 class TTSService:
     """Vertex AI TTS 서비스"""
@@ -33,9 +38,7 @@ class TTSService:
         host_name: str, 
         guest_name: str | None = None
     ) -> tuple[List[Dict[str, Any]], List[str]]:
-        """
-        스크립트를 TTS로 변환
-        """
+        """스크립트를 TTS로 변환"""
         logger.info(f"TTS 변환 시작 - 선생님: {host_name}, 학생: {FIXED_STUDENT_VOICE} (Pitch x{STUDENT_PITCH_FACTOR})")
         
         audio_metadata = []
@@ -63,9 +66,8 @@ class TTSService:
                 if not sanitized_content:
                     continue
                 
-                # 목소리 결정 로직
                 voice_name = host_name
-                is_student = False # 학생 여부 체크
+                is_student = False
                 
                 if any(role in speaker_tag for role in ["선생", "진행", "teacher", "host"]):
                     voice_name = host_name
@@ -73,7 +75,6 @@ class TTSService:
                     voice_name = FIXED_STUDENT_VOICE
                     is_student = True
                 
-                # TTS 생성
                 audio_file = self._generate_single_audio(
                     sanitized_content,
                     voice_name,
@@ -81,7 +82,7 @@ class TTSService:
                     base_filename,
                     len(audio_metadata),
                     chunk_index,
-                    is_student=is_student # 학생 여부 전달
+                    is_student=is_student
                 )
                 
                 if audio_file:
@@ -140,11 +141,11 @@ class TTSService:
                 
                 pcm_bytes = base64_to_bytes(audio_data_part.inline_data.data)
                 
-                # 기본 duration 계산
                 sample_rate = 24000
-                duration_seconds = len(pcm_bytes) / (sample_rate * 2) # 16bit = 2bytes
+                duration_seconds = len(pcm_bytes) / (sample_rate * 2)
                 
-                output_dir = "outputs/podcasts/wav"
+                # ✅ 환경 변수 기반 경로 사용
+                output_dir = get_wav_output_dir()
                 os.makedirs(output_dir, exist_ok=True)
                 
                 safe_speaker = re.sub(r"[^a-zA-Z0-9가-힣]", "", speaker)
@@ -152,18 +153,14 @@ class TTSService:
                 
                 wav_bytes = pcm_to_wav(pcm_bytes, sample_rate=sample_rate)
                 
-                # 1. 일단 원본 저장
                 with open(output_file, "wb") as f:
                     f.write(wav_bytes)
 
-                # 2. [핵심] 학생이면 피치 변조 (FFmpeg 사용)
                 if is_student:
                     temp_file = output_file.replace(".wav", "_temp.wav")
                     os.rename(output_file, temp_file)
                     
                     try:
-                        # asetrate: 재생 속도(피치) 변경 (24000 * 1.25)
-                        # aresample: 샘플링 레이트 복구 (병합을 위해 필수)
                         new_rate = int(sample_rate * STUDENT_PITCH_FACTOR)
                         
                         command = [
@@ -178,10 +175,7 @@ class TTSService:
                             capture_output=True 
                         )
                         
-                        # 변환 성공 시 임시 파일 삭제
                         os.remove(temp_file)
-                        
-                        # [중요] 피치가 올라가면(빨라지면) 재생 시간도 줄어듦 -> duration 업데이트
                         duration_seconds = duration_seconds / STUDENT_PITCH_FACTOR
                         
                     except Exception as e:
@@ -197,7 +191,6 @@ class TTSService:
                 }
                 
             except Exception as e:
-                # 429 오류 대응
                 if "429" in str(e) or "quota" in str(e).lower():
                     wait_time = 10.0 * (attempt + 1)
                     logger.warning(f"🚨 쿼터 주의(429) - {wait_time}초 대기...")
