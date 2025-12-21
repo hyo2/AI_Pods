@@ -60,3 +60,4 @@ python-jose[cryptography]
 # Other (미리 설치되어 있음)
 # -----------------------------
 typing-extensions
+email-validator==2.3.0
