@@ -10,6 +10,10 @@ import os
 
 from app.routers import auth, input, output, project, storage, voice
 
+from app.utils.vertex_env_patch import patch_vertex_ai_env
+
+patch_vertex_ai_env()  # 배포용
+
 app = FastAPI(
     title="AI Pods API",
     description="AI Pods API description",
