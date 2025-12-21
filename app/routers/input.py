@@ -29,19 +29,17 @@ def get_inputs(project_id: int = Query(...)):
 async def submit_inputs(
     user_id: str = Form(...), # uuid
     project_id: int = Form(...),
-    host1: str = Form(""),      # ✅ 선택 필드로 변경
-    host2: str = Form(""),      # ✅ 선택 필드로 변경
-    style: str = Form(""),      # ✅ 선택 필드로 변경
+    host1: str = Form(""),     
+    host2: str = Form(""),      
+    style: str = Form(""),      
     links: str = Form("[]"),    # JSON string
     files: List[UploadFile] = File(None)
 ):
     """
-    프론트에서 보낸 files[] + links[] + options 를 input_contents에 저장한다.
+    프론트에서 보낸 files[] + links[] + options 를 input_contents에 저장
     파일은 supabase storage에 저장.
     링크는 input_contents에 URL 정보만 저장.
     호스트/스타일 옵션은 output 생성 요청할 때 사용되므로 input 단계에 options로 저장해 둠.
-    
-    ✅ host1, host2, style은 선택 필드 - 소스 추가만 할 때는 빈 값으로 전달 가능
     """
 
     # 일반 사용자 기준 input source 만료일 180일로 지정

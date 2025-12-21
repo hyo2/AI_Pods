@@ -1,6 +1,6 @@
 """
 Document Converter Node
-다양한 문서 형식(HWP, DOCX, PPTX, URL)을 PDF로 변환하는 노드
+다양한 문서 형식(HWP, DOCX, PPTX, URL, TXT)을 PDF로 변환하는 노드
 """
 
 import os
@@ -12,7 +12,6 @@ import requests
 from bs4 import BeautifulSoup
 from io import BytesIO
 
-# Document processing
 # Document processing
 from docx import Document as DocxDocument
 from pptx import Presentation
@@ -31,6 +30,7 @@ class DocumentType(Enum):
     HWP = "hwp"
     DOCX = "docx"
     PPTX = "pptx"
+    TXT = "txt"      # ✅ 추가
     URL = "url"
     UNKNOWN = "unknown"
 
@@ -44,6 +44,7 @@ class DocumentConverterNode:
     - DOCX: LibreOffice/pypandoc 사용하여 변환
     - PPTX: 각 슬라이드를 이미지로 변환 후 PDF 생성
     - HWP: 외부 변환 서비스 또는 LibreOffice 사용
+    - TXT: 텍스트 파일을 PDF로 변환
     - URL: HTML을 추출하여 PDF로 변환
     """
     
@@ -58,7 +59,12 @@ class DocumentConverterNode:
     
     def detect_document_type(self, file_path: str) -> DocumentType:
         """파일 확장자를 기반으로 문서 타입 감지"""
-        if file_path.startswith("http://") or file_path.startswith("https://"):
+        # URL 체크 (확장자보다 우선)
+        # ✅ 백슬래시로 변환된 경우도 감지 (Windows 경로 변환 대응)
+        if file_path.startswith(("http://", "https://", "http:\\", "https:\\")):
+            # 백슬래시를 슬래시로 복원
+            if "\\" in file_path:
+                logger.warning(f"⚠️ URL이 백슬래시로 변환됨, 복원: {file_path}")
             return DocumentType.URL
         
         extension = Path(file_path).suffix.lower()
@@ -67,6 +73,7 @@ class DocumentConverterNode:
             ".hwp": DocumentType.HWP,
             ".docx": DocumentType.DOCX,
             ".pptx": DocumentType.PPTX,
+            ".txt": DocumentType.TXT,  # ✅ 추가
         }
         return type_mapping.get(extension, DocumentType.UNKNOWN)
     
@@ -85,7 +92,10 @@ class DocumentConverterNode:
         logger.info(f"Converting {doc_type.value}: {source}")
         
         if output_filename is None:
-            output_filename = f"{Path(source).stem}_{doc_type.value}.pdf"
+            if doc_type == DocumentType.URL:
+                output_filename = f"web_content_{hash(source) % 100000}.pdf"
+            else:
+                output_filename = f"{Path(source).stem}_{doc_type.value}.pdf"
         
         output_path = self.output_dir / output_filename
         
@@ -95,6 +105,7 @@ class DocumentConverterNode:
             DocumentType.DOCX: self._convert_docx_to_pdf,
             DocumentType.PPTX: self._convert_pptx_to_pdf,
             DocumentType.HWP: self._convert_hwp_to_pdf,
+            DocumentType.TXT: self._convert_txt_to_pdf,  # ✅ 추가
             DocumentType.URL: self._convert_url_to_pdf,
         }
         
@@ -151,6 +162,102 @@ class DocumentConverterNode:
         shutil.copy2(source, output_path)
         logger.info(f"PDF copied to: {output_path}")
         return output_path
+    
+    def _convert_txt_to_pdf(self, source: str, output_path: str) -> str:
+        """
+        ✅ TXT 파일을 PDF로 변환
+        """
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.pagesizes import A4
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        
+        logger.info(f"Converting TXT to PDF: {source}")
+        
+        try:
+            # 텍스트 파일 읽기
+            with open(source, 'r', encoding='utf-8') as f:
+                text_content = f.read()
+            
+            if not text_content.strip():
+                raise ValueError("TXT 파일이 비어있습니다")
+            
+            # PDF 생성
+            c = canvas.Canvas(output_path, pagesize=A4)
+            width, height = A4
+            
+            # 한글 폰트 등록 시도
+            korean_font_registered = False
+            try:
+                font_paths = [
+                    "C:/Windows/Fonts/malgun.ttf",
+                    "C:/Windows/Fonts/NanumGothic.ttf",
+                    "C:/Windows/Fonts/gulim.ttc",
+                    "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",  # Linux
+                    "/System/Library/Fonts/AppleGothic.ttf",  # macOS
+                ]
+                for font_path in font_paths:
+                    if os.path.exists(font_path):
+                        pdfmetrics.registerFont(TTFont('Korean', font_path))
+                        korean_font_registered = True
+                        logger.info(f"✓ Korean font registered: {font_path}")
+                        break
+            except Exception as e:
+                logger.warning(f"⚠ Font registration failed: {e}")
+            
+            # 폰트 설정
+            if korean_font_registered:
+                c.setFont("Korean", 10)
+            else:
+                c.setFont("Helvetica", 10)
+            
+            # 제목 (첫 줄 또는 파일명)
+            title = text_content.split('\n')[0][:80] if text_content else Path(source).stem
+            if korean_font_registered:
+                c.setFont("Korean", 14)
+            else:
+                c.setFont("Helvetica-Bold", 14)
+            c.drawString(50, height - 40, title)
+            
+            # 본문
+            if korean_font_registered:
+                c.setFont("Korean", 10)
+            else:
+                c.setFont("Helvetica", 10)
+            
+            y_position = height - 70
+            lines = text_content.split('\n')
+            
+            for line in lines:
+                if not line.strip():
+                    y_position -= 14
+                    continue
+                
+                # 긴 줄 자동 줄바꿈
+                wrapped_lines = self._wrap_text(line, width - 100, c)
+                for wrapped_line in wrapped_lines:
+                    if len(wrapped_line) > 120:
+                        wrapped_line = wrapped_line[:117] + "..."
+                    
+                    c.drawString(50, y_position, wrapped_line)
+                    y_position -= 14
+                    
+                    # 페이지 넘김
+                    if y_position < 50:
+                        c.showPage()
+                        if korean_font_registered:
+                            c.setFont("Korean", 10)
+                        else:
+                            c.setFont("Helvetica", 10)
+                        y_position = height - 50
+            
+            c.save()
+            logger.info(f"✓ TXT converted to PDF: {output_path}")
+            return output_path
+            
+        except Exception as e:
+            logger.error(f"✗ TXT conversion failed: {e}")
+            raise
     
     def _convert_docx_to_pdf(self, source: str, output_path: str) -> str:
         """
@@ -354,8 +461,13 @@ class DocumentConverterNode:
             lines = [line.strip() for line in text_content.split('\n') if line.strip()]
             text_content = '\n'.join(lines)
             
-            if not text_content or len(text_content) < 100:
+            # 최소 기준 완화: 30자 이상이면 시도
+            if not text_content or len(text_content) < 30:
                 raise ValueError(f"Extracted text too short ({len(text_content)} chars). URL might be inaccessible or have no content.")
+            
+            # 경고만 표시
+            if len(text_content) < 100:
+                logger.warning(f"⚠️ URL에서 추출한 텍스트가 짧음 ({len(text_content)}자). 제한적인 정보만 포함될 수 있습니다.")
             
             logger.info(f"✓ Extracted {len(text_content)} characters, {len(lines)} lines")
             
@@ -484,8 +596,10 @@ if __name__ == "__main__":
         print("  - PDF (원본 복사)")
         print("  - DOCX (LibreOffice 변환)")
         print("  - PPTX (LibreOffice 변환)")
+        print("  - TXT (텍스트 → PDF)")
         print("  - URL (웹페이지 크롤링)")
         print("\n예제:")
         print("  python document_converter_node.py sample.docx")
+        print("  python document_converter_node.py notes.txt")
         print("  python document_converter_node.py https://example.com")
         print("="*120 + "\n")

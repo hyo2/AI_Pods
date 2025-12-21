@@ -3,14 +3,14 @@ Metadata Generator Node
 =======================
 
 입력:
-- main_file: 주강의자료 (1개, 필수)
-- aux_files: 보조자료 (0~3개, 선택)
+- primary_file: 주강의자료 (1개, 필수)
+- supplementary_files: 보조자료 (0~3개, 선택)
 
 출력:
 - metadata.json (이미지 설명 포함, 파일 저장 안 함)
 
 통합:
-- DocumentConverterNode: PDF 변환
+- DocumentConverterNode: PDF 변환 + TXT/URL 처리
 - ImprovedHybridFilterPipeline: 이미지 필터링
 - TextExtractor: 페이지별 텍스트 추출
 - ImageDescriptionGenerator: 이미지 상세 설명
@@ -22,10 +22,33 @@ import tempfile
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from datetime import datetime
-import pdfplumber
+
+# OCR 로그 억제 (import 전에 설정)
+os.environ['FLAGS_log_level'] = '3'  # PaddlePaddle 로그 레벨
+os.environ['PPOCR_SHOW_LOG'] = 'False'  # PaddleOCR 로그 억제
+
+try:
+    import fitz  # PyMuPDF
+    PYMUPDF_AVAILABLE = True
+except ImportError:
+    import pdfplumber
+    PYMUPDF_AVAILABLE = False
+
+# OCR 라이브러리
+try:
+    from paddleocr import PaddleOCR
+    OCR_AVAILABLE = True
+    ocr_engine = PaddleOCR(lang='korean', use_textline_orientation=True)
+except ImportError:
+    OCR_AVAILABLE = False
+    ocr_engine = None
+except Exception as e:
+    print(f"⚠️  PaddleOCR 초기화 실패: {e}")
+    OCR_AVAILABLE = False
+    ocr_engine = None
 
 # 기존 노드 임포트
-from .document_converter_node import DocumentConverterNode
+from .document_converter_node import DocumentConverterNode, DocumentType
 from .improved_hybrid_filter import (
     ImprovedHybridFilterPipeline,
     UniversalImageExtractor,
@@ -37,7 +60,52 @@ from vertexai.generative_models import Part
 
 
 class TextExtractor:
-    """PDF에서 페이지별 텍스트 추출 + 마커 삽입"""
+    """PDF에서 페이지별 텍스트 추출 + 마커 삽입 (OCR 지원)"""
+    
+    def __init__(self):
+        """TextExtractor 초기화"""
+        self.ocr_enabled = OCR_AVAILABLE
+        self.min_text_length = 100  # OCR 트리거 기준 (문자 수)
+    
+    def _perform_ocr(self, page) -> str:
+        """
+        페이지에 OCR 수행 (PaddleOCR)
+        
+        Args:
+            page: PyMuPDF page 객체
+        
+        Returns:
+            OCR로 추출한 텍스트
+        """
+        if not self.ocr_enabled or ocr_engine is None:
+            return ""
+        
+        try:
+            pix = page.get_pixmap(dpi=150)
+            img_data = pix.tobytes("png")
+            
+            import numpy as np
+            from PIL import Image
+            from io import BytesIO
+            
+            img = Image.open(BytesIO(img_data))
+            img_array = np.array(img)
+            
+            result = ocr_engine.ocr(img_array, cls=True)
+            
+            if result and result[0]:
+                lines = []
+                for line in result[0]:
+                    if line and len(line) >= 2:
+                        text = line[1][0]
+                        lines.append(text)
+                return "\n".join(lines)
+            
+            return ""
+        
+        except Exception as e:
+            print(f"      ⚠️  OCR 실패: {e}")
+            return ""
     
     def extract_with_markers(
         self, 
@@ -46,6 +114,8 @@ class TextExtractor:
     ) -> Dict[str, Any]:
         """
         PDF에서 페이지별 텍스트 추출 + 마커 삽입
+        PyMuPDF 우선, 없으면 pdfplumber 사용
+        텍스트 부족 시 OCR 자동 수행
         
         Args:
             pdf_path: PDF 파일 경로
@@ -57,24 +127,82 @@ class TextExtractor:
                 "total_pages": 21
             }
         """
+        if PYMUPDF_AVAILABLE:
+            return self._extract_with_pymupdf(pdf_path, prefix)
+        else:
+            return self._extract_with_pdfplumber(pdf_path, prefix)
+    
+    def _extract_with_pymupdf(self, pdf_path: str, prefix: str) -> Dict[str, Any]:
+        """PyMuPDF로 텍스트 추출 (OCR 지원)"""
+        pages_text = []
+        total_pages = 0
+        ocr_count = 0
+        
+        try:
+            doc = fitz.open(pdf_path)
+            total_pages = len(doc)
+            
+            print(f"   📄 텍스트 추출 중... (OCR {'활성화' if self.ocr_enabled else '비활성화'})")
+            
+            for page_num in range(total_pages):
+                page = doc[page_num]
+                text = page.get_text()
+                text_length = len(text.strip())
+                
+                if text_length < self.min_text_length and self.ocr_enabled:
+                    print(f"      → 페이지 {page_num + 1}: 텍스트 부족 ({text_length}자) → OCR 수행")
+                    ocr_text = self._perform_ocr(page)
+                    
+                    if ocr_text:
+                        text = ocr_text
+                        ocr_count += 1
+                        print(f"         ✅ OCR 완료 ({len(ocr_text)}자 추출)")
+                    else:
+                        print(f"         ⚠️  OCR 실패, 원본 텍스트 사용")
+                
+                lines = text.split('\n')
+                title = lines[0][:50] if lines and lines[0].strip() else f"Page {page_num + 1}"
+                
+                pages_text.append(f"[{prefix}-PAGE {page_num + 1}: {title}]")
+                pages_text.append(text)
+                pages_text.append("")
+            
+            doc.close()
+            
+            if ocr_count > 0:
+                print(f"   ✅ OCR 처리 완료: {ocr_count}개 페이지")
+        
+        except Exception as e:
+            print(f"   ❌ PDF 텍스트 추출 실패: {e}")
+            return {"full_text": "", "total_pages": 0}
+        
+        return {
+            "full_text": "\n".join(pages_text),
+            "total_pages": total_pages
+        }
+    
+    def _extract_with_pdfplumber(self, pdf_path: str, prefix: str) -> Dict[str, Any]:
+        """pdfplumber로 텍스트 추출 (fallback)"""
         pages_text = []
         total_pages = 0
         
-        with pdfplumber.open(pdf_path) as pdf:
-            total_pages = len(pdf.pages)
-            
-            for page_num, page in enumerate(pdf.pages, 1):
-                # 페이지 텍스트 추출
-                text = page.extract_text() or ""
+        try:
+            with pdfplumber.open(pdf_path) as pdf:
+                total_pages = len(pdf.pages)
                 
-                # 페이지 제목 추출 (첫 줄 또는 처음 50자)
-                lines = text.split('\n')
-                title = lines[0][:50] if lines and lines[0].strip() else f"Page {page_num}"
-                
-                # 페이지 마커 + 내용
-                pages_text.append(f"[{prefix}-PAGE {page_num}: {title}]")
-                pages_text.append(text)
-                pages_text.append("")  # 페이지 간 구분
+                for page_num, page in enumerate(pdf.pages, 1):
+                    text = page.extract_text() or ""
+                    
+                    lines = text.split('\n')
+                    title = lines[0][:50] if lines and lines[0].strip() else f"Page {page_num}"
+                    
+                    pages_text.append(f"[{prefix}-PAGE {page_num}: {title}]")
+                    pages_text.append(text)
+                    pages_text.append("")
+        
+        except Exception as e:
+            print(f"   ❌ PDF 텍스트 추출 실패: {e}")
+            return {"full_text": "", "total_pages": 0}
         
         return {
             "full_text": "\n".join(pages_text),
@@ -89,27 +217,23 @@ class ImageDescriptionGenerator:
         self, 
         image_bytes: bytes, 
         adjacent_text: str,
-        keywords: List[str]
+        keywords: List[str],
+        max_retries=3
     ) -> str:
         """
         Vision API로 이미지 상세 설명 생성
-        
-        Args:
-            image_bytes: 이미지 바이트 데이터
-            adjacent_text: 주변 텍스트
-            keywords: 문서 키워드
-        
-        Returns:
-            2-4문장의 상세 설명
+        재시도 로직 포함 (429 Rate Limit 대응)
         """
-        try:
-            # MIME 타입 감지
-            mime_type = self._get_mime_type(image_bytes)
-            image_part = Part.from_data(data=image_bytes, mime_type=mime_type)
-            
-            keyword_context = ', '.join(keywords[:10]) if keywords else "일반 학습 내용"
-            
-            prompt = f"""
+        import time
+        
+        for attempt in range(max_retries):
+            try:
+                mime_type = self._get_mime_type(image_bytes)
+                image_part = Part.from_data(data=image_bytes, mime_type=mime_type)
+                
+                keyword_context = ', '.join(keywords[:10]) if keywords else "일반 학습 내용"
+                
+                prompt = f"""
 이 이미지를 2-4문장으로 설명하세요.
 
 강의 주제: {keyword_context}
@@ -126,12 +250,26 @@ class ImageDescriptionGenerator:
 
 출력: 명확하고 간결한 2-4문장만.
 """
-            
-            response = model.generate_content([image_part, prompt])
-            return response.text.strip()
-            
-        except Exception as e:
-            return f"이미지 설명 생성 실패: {str(e)}"
+                
+                response = model.generate_content([image_part, prompt])
+                return response.text.strip()
+                
+            except Exception as e:
+                error_msg = str(e)
+                
+                if "429" in error_msg or "Resource exhausted" in error_msg:
+                    if attempt < max_retries - 1:
+                        wait_time = (attempt + 1) * 3
+                        print(f"      ⚠️  Rate Limit, {wait_time}초 대기 중...", end='', flush=True)
+                        time.sleep(wait_time)
+                        print(" 재시도")
+                        continue
+                    else:
+                        return f"이미지 설명 생성 실패: API rate limit exceeded"
+                else:
+                    return f"이미지 설명 생성 실패: {error_msg}"
+        
+        return "이미지 설명 생성 실패: Failed after all retries"
     
     def _get_mime_type(self, image_bytes: bytes) -> str:
         """이미지 바이너리에서 MIME 타입 감지"""
@@ -160,91 +298,64 @@ class MetadataGenerator:
         self.image_describer = ImageDescriptionGenerator()
     
     def _extract_page_title(self, slide_title: str, adjacent_text: str) -> str:
-        """
-        의미있는 페이지 제목 추출
-        
-        1순위: slide.title (있고 의미있으면)
-        2순위: adjacent_text 첫 줄
-        3순위: "페이지 제목 없음"
-        
-        Args:
-            slide_title: PPTX의 slide.title
-            adjacent_text: 슬라이드 전체 텍스트
-        
-        Returns:
-            추출된 페이지 제목 (최대 50자)
-        """
-        # 1. slide.title이 있고 의미있으면
+        """의미있는 페이지 제목 추출"""
         if slide_title and slide_title.strip() and slide_title.lower() != "no title":
             return slide_title.strip()[:50]
         
-        # 2. adjacent_text에서 첫 번째 의미있는 줄 추출
         if adjacent_text:
             lines = adjacent_text.strip().split('\n')
             for line in lines:
                 line = line.strip()
-                # 의미있는 줄: 3자 이상, ☞로 시작 안 함, 너무 짧지 않음
                 if len(line) > 3 and not line.startswith('☞'):
                     return line[:50]
         
-        # 3. 그래도 없으면
         return "페이지 제목 없음"
     
     def generate(
         self,
-        main_file: str,
-        aux_files: Optional[List[str]] = None,
+        primary_file: str,
+        supplementary_files: Optional[List[str]] = None,
         output_path: str = "output/metadata.json"
     ) -> str:
-        """
-        메타데이터 생성
-        
-        Args:
-            main_file: 주강의자료 경로
-            aux_files: 보조자료 경로 리스트 (0~3개)
-            output_path: 출력 JSON 경로
-        
-        Returns:
-            생성된 metadata.json 경로
-        """
+        """메타데이터 생성"""
         print(f"\n{'='*120}")
         print(f"🎯 메타데이터 생성 시작")
         print(f"{'='*120}")
-        print(f"주강의자료: {main_file}")
-        if aux_files:
-            print(f"보조자료: {len(aux_files)}개")
-            for i, supp in enumerate(aux_files, 1):
+        print(f"주강의자료: {primary_file}")
+        if supplementary_files:
+            print(f"보조자료: {len(supplementary_files)}개")
+            for i, supp in enumerate(supplementary_files, 1):
                 print(f"  {i}. {supp}")
         print(f"{'='*120}\n")
         
-        # 임시 디렉토리 사용
         with tempfile.TemporaryDirectory() as temp_dir:
             self.converter = DocumentConverterNode(output_dir=temp_dir)
             
-            # 1. 주강의자료 처리
             print("📄 [1/3] 주강의자료 처리 중...")
-            main_metadata = self._process_main_source(main_file)
+            primary_metadata = self._process_primary_source(primary_file)
             
-            # 2. 보조자료 처리
             print("\n📚 [2/3] 보조자료 처리 중...")
-            aux_metadata = []
-            if aux_files:
-                for i, supp_file in enumerate(aux_files[:3], 1):  # 최대 3개
-                    supp_meta = self._process_aux_source(supp_file, i)
-                    aux_metadata.append(supp_meta)
+            supplementary_metadata = []
+            if supplementary_files:
+                for i, supp_file in enumerate(supplementary_files[:3], 1):
+                    try:
+                        supp_meta = self._process_supplementary_source(supp_file, i)
+                        supplementary_metadata.append(supp_meta)
+                        print(f"   ✅ 보조자료 {i} 처리 성공")
+                    except Exception as e:
+                        print(f"   ⚠️ 보조자료 {i} 처리 실패 (계속 진행): {e}")
+                        # 실패해도 다음 보조자료로 넘어감
             else:
                 print("   ⚠️  보조자료 없음 (선택 사항)")
             
-            # 3. 최종 메타데이터 구성
             print("\n🔧 [3/3] 메타데이터 통합 중...")
             metadata = {
                 "metadata_version": "1.0",
                 "created_at": datetime.now().isoformat(),
-                "main_source": main_metadata,
-                "aux_sources": aux_metadata
+                "primary_source": primary_metadata,
+                "supplementary_sources": supplementary_metadata
             }
             
-            # 4. JSON 저장
             output_path = Path(output_path)
             output_path.parent.mkdir(parents=True, exist_ok=True)
             
@@ -255,69 +366,83 @@ class MetadataGenerator:
             print(f"✅ 메타데이터 생성 완료!")
             print(f"{'='*120}")
             print(f"📁 출력 파일: {output_path}")
-            print(f"📊 주강의자료 페이지: {main_metadata['total_pages']}개")
-            print(f"🖼️  필터링된 이미지: {len(main_metadata['filtered_images'])}개")
-            if aux_metadata:
-                total_supp_pages = sum(s['total_pages'] for s in aux_metadata)
+            print(f"📊 주강의자료 페이지: {primary_metadata['total_pages']}개")
+            print(f"🖼️  필터링된 이미지: {len(primary_metadata['filtered_images'])}개")
+            if supplementary_metadata:
+                total_supp_pages = sum(s['total_pages'] for s in supplementary_metadata)
                 print(f"📚 보조자료 페이지: {total_supp_pages}개")
             print(f"{'='*120}\n")
             
             return str(output_path)
     
-    def _process_main_source(self, file_path: str) -> Dict[str, Any]:
+    def _process_primary_source(self, file_path: str) -> Dict[str, Any]:
         """
         주강의자료 처리
-        - PDF 변환
-        - 텍스트 추출
-        - 이미지 필터링
-        - 이미지 설명 생성
+        ✅ TXT/URL 지원 추가 (수정됨)
         """
-        file_path = Path(file_path)
-        file_type = file_path.suffix.lower().replace('.', '')
+        file_path_str = str(file_path)
+        # file_path = Path(file_path)
         
-        print(f"   📄 파일: {file_path.name} ({file_type})")
+        # ✅ 원본 파일 타입 감지 (변환 전)
+        if file_path_str.startswith(('http://', 'https://')):
+            original_file_type = 'url'
+            file_path_obj = None  # URL은 Path 객체 만들지 않음
+            display_name = file_path_str[:50]
+        else:
+            file_path_obj = Path(file_path)
+            original_file_type = file_path_obj.suffix.lower().replace('.', '')
+            display_name = file_path_obj.name
         
-        # 1. PDF 변환 (텍스트 추출용)
-        print(f"   🔄 PDF 변환 중... (텍스트 추출용)")
-        pdf_path = self.converter.convert(str(file_path))
+        print(f"   📄 파일: {display_name} ({original_file_type})")
         
-        # 2. 텍스트 추출 (페이지 마커 포함)
+        # 1. 파일 변환 (TXT/URL도 PDF로 변환됨)
+        print(f"   🔄 파일 처리 중...")
+        processed_path = self.converter.convert(file_path_str)
+        
+        # ✅ 변환 후 파일은 항상 PDF임!
+        processed_file_type = Path(processed_path).suffix.lower().replace('.', '')
+        
+        # 2. 텍스트 추출
         print(f"   📝 텍스트 추출 중...")
-        text_data = self.text_extractor.extract_with_markers(pdf_path, prefix="MAIN")
         
-        # 3. 이미지 필터링 (형식별 처리)
-        print(f"   🖼️  이미지 필터링 중...")
+        # ✅ TXT/URL이었어도 이제는 PDF가 되었으므로 PDF 처리 로직 사용
+        if original_file_type in ['txt', 'url']:
+            # TXT/URL → PDF 변환됨 → PDF에서 텍스트 추출
+            text_data = self.text_extractor.extract_with_markers(processed_path, prefix="MAIN")
+            print(f"   ✅ 텍스트 추출 완료: {len(text_data['full_text'])}자")
+        else:
+            # 기존 PDF/PPTX/DOCX 처리
+            text_data = self.text_extractor.extract_with_markers(processed_path, prefix="MAIN")
         
-        if file_type == 'pptx':
-            # ✅ PPTX: 원본에서 직접 추출 (품질 최상)
+        # 3. 이미지 필터링
+        print(f"   🖼️  이미지 처리 중...")
+        
+        filtered_images = []
+        keywords = []
+        
+        # ✅ TXT/URL은 이미지 없음
+        if original_file_type in ['txt', 'url']:
+            print(f"      → TXT/URL은 이미지 없음, 건너뛰기")
+            all_images = []
+        
+        elif original_file_type == 'pptx':
             print(f"      → PPTX 원본에서 직접 추출")
-            
-            # 키워드 추출
-            self.image_filter.extract_keywords_from_document(str(file_path))
+            self.image_filter.extract_keywords_from_document(file_path_str)
             keywords = self.image_filter.document_keywords
+            all_images = self._extract_images_from_pptx(file_path_str)
             
-            # 이미지 메타데이터 추출 (python-pptx)
-            all_images = self._extract_images_from_pptx(str(file_path))
-            
-        elif file_type in ['docx', 'pdf']:
-            # ✅ DOCX/PDF: PDF에서 추출
-            print(f"      → PDF에서 이미지 추출 (pdfplumber + pdf2image)")
-            
-            # 키워드 추출 (변환된 PDF 사용)
-            self.image_filter.extract_keywords_from_document(pdf_path)
+        elif original_file_type in ['docx', 'pdf']:
+            print(f"      → PDF에서 이미지 추출")
+            self.image_filter.extract_keywords_from_document(processed_path)
             keywords = self.image_filter.document_keywords
-            
-            # 이미지 메타데이터 추출 (PDF)
             extractor = UniversalImageExtractor()
-            all_images = extractor.extract(pdf_path)
+            all_images = extractor.extract(processed_path)
         
         else:
-            print(f"   ⚠️  지원하지 않는 형식: {file_type}")
+            print(f"   ⚠️  지원하지 않는 형식: {original_file_type}")
             all_images = []
-            keywords = []
         
         # 4. 필터링 실행
-        filtered_images = []
         if all_images:
             print(f"   🔍 {len(all_images)}개 이미지 발견, 필터링 시작...")
             
@@ -336,29 +461,27 @@ class MetadataGenerator:
                         img_meta.filter_reason = ai_result
                         filtered_images.append(img_meta)
             
-            print(f"   ✅ 필터링 완료: {len(filtered_images)}개 선택 ({len(all_images) - len(filtered_images)}개 제외)")
+            print(f"   ✅ 필터링 완료: {len(filtered_images)}개 선택")
         
-        # 5. 통과된 이미지 상세 설명 생성
+        # 5. 이미지 설명 생성
         filtered_image_metadata = []
         if filtered_images:
             print(f"   📝 이미지 설명 생성 중... (0/{len(filtered_images)})", end='', flush=True)
             
             for i, img_meta in enumerate(filtered_images, 1):
-                # 이미지 설명 생성
                 description = self.image_describer.generate_description(
                     img_meta.image_bytes,
                     img_meta.adjacent_text,
                     keywords
                 )
                 
-                # 페이지 제목 추출 (개선된 로직)
                 page_title = self._extract_page_title(
                     img_meta.slide_title,
                     img_meta.adjacent_text
                 )
                 
                 filtered_image_metadata.append({
-                    "image_id": img_meta.image_id.replace("S", "MAIN_P").replace("P", "MAIN_P"),  # S02 or P02 → MAIN_P02
+                    "image_id": img_meta.image_id.replace("S", "MAIN_P").replace("P", "MAIN_P"),
                     "page_number": img_meta.slide_number,
                     "page_title": page_title,
                     "description": description,
@@ -368,16 +491,16 @@ class MetadataGenerator:
                 
                 print(f"\r   📝 이미지 설명 생성 중... ({i}/{len(filtered_images)})", end='', flush=True)
             
-            print()  # 줄바꿈
+            print()
         
-        # 6. 통계 생성
+        # 6. 통계
         total_images = len(all_images)
         passed_images = len(filtered_images)
         
         return {
             "role": "main",
-            "filename": file_path.name,
-            "file_type": file_type,
+            "filename": display_name if original_file_type == 'url' else file_path_obj.name,
+            "file_type": original_file_type,  # ✅ 원본 타입 저장
             "total_pages": text_data['total_pages'],
             "content": {
                 "full_text": text_data['full_text']
@@ -390,22 +513,23 @@ class MetadataGenerator:
             }
         }
     
-    def _process_aux_source(self, file_path: str, order: int) -> Dict[str, Any]:
-        """
-        보조자료 처리
-        - PDF 변환
-        - 텍스트만 추출 (이미지 무시)
-        """
-        file_path = Path(file_path)
-        file_type = file_path.suffix.lower().replace('.', '')
+    def _process_supplementary_source(self, file_path: str, order: int) -> Dict[str, Any]:
+        file_path_str = str(file_path)
         
-        print(f"   📚 보조자료 {order}: {file_path.name} ({file_type})")
+        # ✅ URL과 파일 구분
+        if file_path_str.startswith(('http://', 'https://')):
+            file_type = 'url'
+            display_name = 'Web Content'
+        else:
+            file_path_obj = Path(file_path)
+            file_type = file_path_obj.suffix.lower().replace('.', '')
+            display_name = file_path_obj.name
         
-        # 1. PDF 변환
+        print(f"   📚 보조자료 {order}: {display_name} ({file_type})")
+        
         print(f"      🔄 PDF 변환 중...")
-        pdf_path = self.converter.convert(str(file_path))
+        pdf_path = self.converter.convert(file_path_str)  # ✅ 원본 문자열 그대로 전달
         
-        # 2. 텍스트만 추출
         print(f"      📝 텍스트 추출 중...")
         text_data = self.text_extractor.extract_with_markers(pdf_path, prefix=f"SUPP{order}")
         
@@ -413,7 +537,7 @@ class MetadataGenerator:
         
         return {
             "order": order,
-            "filename": file_path.name,
+            "filename": display_name,
             "file_type": file_type,
             "total_pages": text_data['total_pages'],
             "content": {
@@ -422,7 +546,7 @@ class MetadataGenerator:
         }
     
     def _extract_images_from_pptx(self, pptx_path: str) -> List[ImageMetadata]:
-        """PPTX에서 이미지 메타데이터 추출 (UniversalImageExtractor 사용)"""
+        """PPTX에서 이미지 메타데이터 추출"""
         extractor = UniversalImageExtractor()
         return extractor.extract(pptx_path)
 
@@ -435,42 +559,35 @@ if __name__ == "__main__":
     print("🎯 Metadata Generator Node")
     print("="*120)
     
-    # 사용법
     if len(sys.argv) < 2:
         print("\n사용법:")
         print("  python metadata_generator_node.py <주강의자료> [보조1] [보조2] [보조3]")
         print("\n예시:")
-        print("  # 주자료만")
         print("  python metadata_generator_node.py 중등국어1.pptx")
-        print("\n  # 주자료 + 보조 1개")
-        print("  python metadata_generator_node.py 중등국어1.pptx 보조자료.docx")
-        print("\n  # 주자료 + 보조 3개 (최대)")
-        print("  python metadata_generator_node.py 중등국어1.pptx 보조1.docx 보조2.pdf 보조3.docx")
-        print("\n✅ 지원 형식: PPTX, DOCX, PDF")
+        print("  python metadata_generator_node.py notes.txt")
+        print("  python metadata_generator_node.py https://example.com/article")
+        print("\n✅ 지원 형식: PPTX, DOCX, PDF, TXT, URL")
         print("="*120 + "\n")
         sys.exit(1)
     
-    # 파일 경로 파싱
-    main_file = sys.argv[1]
-    aux_files = sys.argv[2:5] if len(sys.argv) > 2 else None  # 최대 3개
+    primary_file = sys.argv[1]
+    supplementary_files = sys.argv[2:5] if len(sys.argv) > 2 else None
     
-    # 파일 존재 확인
-    if not os.path.exists(main_file):
-        print(f"\n❌ 주강의자료를 찾을 수 없습니다: {main_file}")
+    if not primary_file.startswith('http') and not os.path.exists(primary_file):
+        print(f"\n❌ 주강의자료를 찾을 수 없습니다: {primary_file}")
         sys.exit(1)
     
-    if aux_files:
-        for supp in aux_files:
-            if not os.path.exists(supp):
+    if supplementary_files:
+        for supp in supplementary_files:
+            if not supp.startswith('http') and not os.path.exists(supp):
                 print(f"\n❌ 보조자료를 찾을 수 없습니다: {supp}")
                 sys.exit(1)
     
-    # 메타데이터 생성
     try:
         generator = MetadataGenerator()
         output_path = generator.generate(
-            main_file=main_file,
-            aux_files=aux_files,
+            primary_file=primary_file,
+            supplementary_files=supplementary_files,
             output_path="output/metadata.json"
         )
         

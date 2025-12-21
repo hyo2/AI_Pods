@@ -8,6 +8,14 @@ from typing import Optional, List
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
+
+# auth client
+supabase_auth = create_client(
+    SUPABASE_URL,
+    SUPABASE_ANON_KEY
+)
+
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
 BUCKET = "project_resources"

@@ -48,10 +48,10 @@ def extract_texts_node(state: PodcastState) -> PodcastState:
         # [수정] 충돌 방지를 위해 임시 파일명 생성
         temp_json_path = f"outputs/temp_metadata_{uuid.uuid4().hex[:8]}.json"
         
-        # [수정] generate_data()가 아니라 generate()를 호출 (파일 생성)
+        # ✅ 수정: main_file -> primary_file, aux_files -> supplementary_files
         generated_path = generator.generate(
-            main_file=primary_file,
-            aux_files=supplementary_files,
+            primary_file=primary_file,
+            supplementary_files=supplementary_files,
             output_path=temp_json_path
         )
         
@@ -67,9 +67,10 @@ def extract_texts_node(state: PodcastState) -> PodcastState:
         main_texts = []
         aux_texts = []
         
-        # 4-1. Main Source 처리 (키 이름이 'main_source'임에 주의)
-        # metadata_generator_node.py의 리턴 키값은 'main_source'입니다.
-        primary = source_data.get("main_source", {}) 
+        # 4. JSON 데이터 파싱 -> 텍스트 리스트로 변환
+        # ✅ 주의: metadata_generator_node.py는 "primary_source", "supplementary_sources" 키 사용
+        # 4-1. Primary Source 처리
+        primary = source_data.get("primary_source", {}) 
         if primary and "content" in primary:
             text = primary["content"].get("full_text", "")
             if text:
@@ -84,8 +85,8 @@ def extract_texts_node(state: PodcastState) -> PodcastState:
                 
                 main_texts.append(text)
 
-        # 4-2. Auxiliary Sources 처리 (키 이름이 'aux_sources'임)
-        supp_list = source_data.get("aux_sources", [])
+        # 4-2. Supplementary Sources 처리
+        supp_list = source_data.get("supplementary_sources", [])
         for supp in supp_list:
             text = supp.get("content", {}).get("full_text", "")
             if text:
