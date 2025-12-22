@@ -16,7 +16,7 @@ const UploadAndOptionsPage = () => {
   const userId = localStorage.getItem("user_id");
 
   /* 📝 자료 상태 (SourceSelector가 조작) */
-  const [projectFiles, setProjectFiles] = useState<SourceItem[]>([]); // ✅ 프로젝트의 모든 파일
+  const [projectFiles, setProjectFiles] = useState<SourceItem[]>([]); // 프로젝트의 모든 파일
   const [allSources, setAllSources] = useState<SourceItem[]>([]);
   const [selectedSourceIds, setSelectedSourceIds] = useState<
     (string | number)[]
@@ -27,6 +27,9 @@ const UploadAndOptionsPage = () => {
 
   /* 옵션 */
   const [duration, setDuration] = useState(5);
+  const [difficulty, setDifficulty] = useState<
+    "basic" | "intermediate" | "advanced"
+  >("intermediate");
   const [voiceStyle, setVoiceStyle] = useState<"single" | "dialogue">("single");
   const [prompt, setPrompt] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -124,6 +127,7 @@ const UploadAndOptionsPage = () => {
       );
       generateForm.append("duration", String(duration));
       generateForm.append("user_prompt", prompt.trim());
+      generateForm.append("difficulty", difficulty); // 난이도 추가
 
       const genRes = await fetch(`${API_BASE_URL}/outputs/generate`, {
         method: "POST",
@@ -183,7 +187,7 @@ const UploadAndOptionsPage = () => {
         <SourceSelector
           projectId={existingProjectId}
           userId={userId || undefined}
-          projectFiles={projectFiles} // ✅ 전달
+          projectFiles={projectFiles}
           allSources={allSources}
           setAllSources={setAllSources}
           selectedSourceIds={selectedSourceIds}
@@ -227,6 +231,36 @@ const UploadAndOptionsPage = () => {
                       }`}
                     >
                       {min}분
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 팟캐스트 난이도 */}
+              <div>
+                <label className="text-sm font-semibold text-gray-700 mb-2 block">
+                  팟캐스트 난이도
+                </label>
+                <div className="flex gap-2">
+                  {[
+                    { key: "basic", label: "기초" },
+                    { key: "intermediate", label: "중급" },
+                    { key: "advanced", label: "심화" },
+                  ].map((item) => (
+                    <button
+                      key={item.key}
+                      onClick={() =>
+                        setDifficulty(
+                          item.key as "basic" | "intermediate" | "advanced"
+                        )
+                      }
+                      className={`flex-1 py-2.5 rounded-lg border-2 font-medium transition-all ${
+                        difficulty === item.key
+                          ? "border-blue-600 bg-blue-50 text-blue-600"
+                          : "border-gray-200 text-gray-700 hover:border-gray-300"
+                      }`}
+                    >
+                      {item.label}
                     </button>
                   ))}
                 </div>
