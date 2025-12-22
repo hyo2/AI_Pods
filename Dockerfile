@@ -1,11 +1,16 @@
 # Python 3.13 베이스 이미지
 FROM python:3.13-slim
 
-# ffmpeg 설치
+# 시스템 패키지 설치 (ffmpeg + libreoffice)
 RUN apt-get update && \
-    apt-get install -y ffmpeg && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get install -y \
+        ffmpeg \
+        libreoffice \
+        libreoffice-writer \
+        libreoffice-calc \
+        libreoffice-impress \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # 작업 디렉토리 설정
 WORKDIR /app
