@@ -110,14 +110,15 @@ class ScriptGenerator:
         combined_text: str, 
         host_name: str, 
         guest_name: str,
-        duration: int = 5,          # 기본값 5분
-        user_prompt: str = ""       # 사용자 추가 요청
+        duration: int = 5,              # 기본값 5분
+        difficulty: str = "intermediate", # 난이도 설정 (basic, intermediate, advanced)
+        user_prompt: str = ""           # 사용자 추가 요청
     ) -> dict:
         """팟캐스트 스크립트 생성"""
         # 환경 변수에서 모델명 가져오기 (기본값: gemini-2.0-flash-exp)
         model_name = os.getenv("VERTEX_AI_MODEL_TEXT", "gemini-2.0-flash-exp")
         
-        logger.info(f"모델 사용: {model_name} / 목표 시간: {duration}분")
+        logger.info(f"모델 사용: {model_name} / 목표 시간: {duration}분 / 난이도: {difficulty}")
         
         # 시스템 프롬프트와 함께 모델 생성
         model = GenerativeModel(
@@ -125,8 +126,8 @@ class ScriptGenerator:
             system_instruction=self.system_prompt 
         )
         
-        # 프롬프트 생성 (시간 + 사용자 요청 + 주/보조 소스 지침 포함)
-        final_prompt = self._create_prompt(combined_text, host_name, guest_name, duration, user_prompt)
+        # 프롬프트 생성 (시간 + 난이도 + 사용자 요청 포함)
+        final_prompt = self._create_prompt(combined_text, host_name, guest_name, duration, difficulty, user_prompt)
         
         config = {
             "max_output_tokens": 8192,
@@ -179,7 +180,7 @@ class ScriptGenerator:
             logger.error(f"스크립트 생성 오류: {e}", exc_info=True)
             raise RuntimeError(f"스크립트 생성 실패: {str(e)}") from e
     
-    def _create_prompt(self, combined_text: str, host_name: str, guest_name: str, duration: int, user_prompt: str = "") -> str:
+    def _create_prompt(self, combined_text: str, host_name: str, guest_name: str, duration: int, difficulty: str, user_prompt: str = "") -> str:
         """템플릿을 사용해 프롬프트 생성"""
         
         # 1. 소스 텍스트 길이 제한 (6만자로 상향)
@@ -191,11 +192,37 @@ class ScriptGenerator:
         # 2. 시간(분) 기반 글자 수 계산
         chars_per_min = 500
         target_chars = duration * chars_per_min
+
+        # 3. ✅ [NEW] 난이도별 지침 설정
+        difficulty_map = {
+            "basic": (
+                "**[DIFFICULTY: BASIC / BEGINNER]**\n"
+                "- Explain concepts as if talking to a middle school student.\n"
+                "- Use simple analogies and avoid difficult jargon.\n"
+                "- Focus on the 'What' and 'Why' rather than complex details."
+            ),
+            "intermediate": (
+                "**[DIFFICULTY: INTERMEDIATE / COLLEGE LEVEL]**\n"
+                "- Balance clear explanations with technical accuracy.\n"
+                "- You can use technical terms but briefly explain them.\n"
+                "- Focus on applying the concepts."
+            ),
+            "advanced": (
+                "**[DIFFICULTY: ADVANCED / EXPERT]**\n"
+                "- Speak like a professional in the field.\n"
+                "- Dive deep into the nuances and technical details.\n"
+                "- Assume the audience already knows the basics."
+            )
+        }
+        # 기본값은 intermediate
+        diff_instruction = difficulty_map.get(difficulty.lower(), difficulty_map["intermediate"])
         
-        # 3. 지시사항 생성
+        # 4. 지시사항 생성
         instruction_block = (
             f"First, generate a concise and engaging TITLE for this podcast.\n"
             f"Then, write a script suitable for a **{duration}-minute** session.\n"
+            f"\n"
+            f"{diff_instruction}\n"
             f"\n"
             f"OUTPUT FORMAT (IMPORTANT):\n"
             f"Respond strictly in valid JSON format as follows:\n"
@@ -207,7 +234,7 @@ class ScriptGenerator:
             f"Target length: Approximately **{target_chars} Korean characters**.\n"
         )
 
-        # 4. 사용자 추가 요청 반영
+        # 5. 사용자 추가 요청 반영
         if user_prompt and user_prompt.strip():
             instruction_block += f"\n - **USER SPECIAL REQUEST:** {user_prompt}\n"
         

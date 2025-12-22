@@ -26,6 +26,7 @@ async def run_langgraph(
     host2: str,
     style: str = "explain",
     duration: int = 5,
+    difficulty: str = "intermediate",
     user_prompt: str = "",
     output_id: int | None = None,
     step_callback: Callable[[str], None] | None = None
@@ -58,6 +59,7 @@ async def run_langgraph(
         "guest_name": host2,
         "style": style,
         "duration": duration,
+        "difficulty": difficulty,
         "user_prompt": user_prompt,
     }
 

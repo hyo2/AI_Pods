@@ -88,6 +88,7 @@ async def generate_output(
     host2: str = Form(""),
     style: str = Form("lecture"),
     duration: int = Form(5),
+    difficulty: str = Form("intermediate"), # ✅ [추가] 난이도 파라미터 (기본값 intermediate)
     user_prompt: str = Form(""),
 ):
     """output 생성"""
@@ -103,10 +104,11 @@ async def generate_output(
                 "host1": host1,
                 "style": style,
                 "duration": duration,
+                "difficulty": difficulty, # ✅ [추가] DB options 필드에 난이도 저장
                 "user_prompt": user_prompt,
-                "main_input_id": main_input_id,
             },
             "status": "processing",
+            "main_input_id": main_input_id, # 컬럼으로 저장 - 옵션에서 제외
             "current_step": "start"  # 초기 step
         }).execute()
 
@@ -122,6 +124,7 @@ async def generate_output(
             host2=host2,
             style=style,
             duration=duration,
+            difficulty=difficulty, #  [추가] 서비스 함수로 난이도 전달
             user_prompt=user_prompt,
             user_id=out_res.data[0]["project_id"],
         )

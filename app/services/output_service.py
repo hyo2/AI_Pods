@@ -8,7 +8,6 @@ from app.utils.output_helpers import output_exists
 
 # 모듈 레벨 변수 제거 - 함수 실행 시점에 읽도록 변경
 
-
 def update_output_step(output_id: int, current_step: str):
     """output의 현재 진행 단계 업데이트"""
     try:
@@ -69,6 +68,7 @@ async def process_langgraph_output(
     host2,
     style,
     duration,
+    difficulty,
     user_prompt,
     user_id,
 ):
@@ -177,6 +177,7 @@ async def process_langgraph_output(
                 host2=host2,
                 style=style,
                 duration=duration,
+                difficulty=difficulty,
                 user_prompt=user_prompt,
                 output_id=output_id,
                 step_callback=step_callback

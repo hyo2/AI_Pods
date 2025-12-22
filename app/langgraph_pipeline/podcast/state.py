@@ -11,7 +11,7 @@ class PodcastState(TypedDict):
     main_sources: List[str]       # 주 소스 파일 경로들
     aux_sources: List[str]        # 보조 소스 파일 경로들
     
-    # 2. [NEW] 구조화된 메타데이터 (MetadataGenerator 결과)
+    # 2. 구조화된 메타데이터
     source_data: Dict[str, Any]   # 각 소스 파일에서 추출된 메타데이터
     
     # 3. 텍스트 데이터 (LLM 프롬프트용)
@@ -37,4 +37,5 @@ class PodcastState(TypedDict):
     guest_name: str               # 게스트 이름
     style: str                    # 팟캐스트 스타일
     duration: int                 # 예상 지속 시간 (분)
+    difficulty: str               #  [추가됨] 난이도 (basic, intermediate, advanced)
     user_prompt: str              # 사용자 지정 프롬프트

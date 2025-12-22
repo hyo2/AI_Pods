@@ -45,7 +45,7 @@ def extract_texts_node(state: PodcastState) -> PodcastState:
 
         generator = MetadataGenerator()
         
-        # ✅ 환경 변수 기반 경로 사용
+        #  환경 변수 기반 경로 사용
         output_dir = get_temp_output_dir()
         temp_json_path = os.path.join(output_dir, f"temp_metadata_{uuid.uuid4().hex[:8]}.json")
         
@@ -142,11 +142,13 @@ def generate_script_node(state: PodcastState) -> PodcastState:
             style=state.get('style', 'explain')
         )
         
+        #  [수정] difficulty 파라미터 전달 추가
         result = generator.generate_script(
             combined_text=state['combined_text'],
             host_name=state['host_name'],
             guest_name=state['guest_name'],
             duration=state.get('duration', 5),
+            difficulty=state.get('difficulty', 'intermediate'), # <--- 여기 추가됨
             user_prompt=state.get('user_prompt', "")
         )
         
@@ -231,6 +233,7 @@ def run_podcast_generation(
     guest_name: str = None,
     style: str = "explain",
     duration: int = 5,
+    difficulty: str = "intermediate", # [수정] 인자 추가됨!
     user_prompt: str = ""
 ) -> Dict[str, Any]:
     """팟캐스트 생성 메인 실행 함수"""
@@ -241,7 +244,7 @@ def run_podcast_generation(
     guest = guest_name if guest_name else "게스트"
 
     logger.info(f"진행자: {host}, 게스트: {guest}")
-    logger.info(f"설정 - 스타일: {style}, 시간: {duration}분")
+    logger.info(f"설정 - 스타일: {style}, 시간: {duration}분, 난이도: {difficulty}")
 
     initial_state = {
         "main_sources": main_sources,
@@ -264,6 +267,7 @@ def run_podcast_generation(
         "guest_name": guest,
         "style": style,
         "duration": duration,
+        "difficulty": difficulty, #  [수정] State에 난이도 전달
         "user_prompt": user_prompt
     }
 
