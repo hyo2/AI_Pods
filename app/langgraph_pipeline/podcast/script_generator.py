@@ -298,5 +298,6 @@ class ScriptGenerator:
        
         # 과도한 줄바꿈 정리
         script_text = re.sub(r'\n{3,}', '\n\n', script_text)
+        script_text = re.sub(r'\n+$', '', script_text)
        
         return script_text.strip()
