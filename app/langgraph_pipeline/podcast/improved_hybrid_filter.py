@@ -366,6 +366,15 @@ class ImprovedHybridFilterPipeline:
         
         try:
             response = model.generate_content(prompt)
+
+            # ✅ 토큰 추출
+            usage = response.usage_metadata
+            in_t = usage.prompt_token_count
+            out_t = usage.candidates_token_count
+            cost = (in_t / 1_000_000 * 0.075) + (out_t / 1_000_000 * 0.30)
+            
+            print(f"📊 [키워드 추출] 토큰: {usage.total_token_count:,} (In: {in_t}/Out: {out_t}) / 비용: ${cost:.6f}")
+
             text = response.text.strip()
             
             if "```json" in text:
@@ -431,7 +440,15 @@ class ImprovedHybridFilterPipeline:
 출력: KEEP 또는 DISCARD로 시작
 """
                 response = model.generate_content([image_part, prompt])
-                return response.text.strip()
+
+                # ✅ 토큰 및 비용 계산 추가
+                # ✅ Gemini 2.5 Flash 공식 단가 적용
+                input_tokens = response.usage_metadata.prompt_token_count
+                output_tokens = response.usage_metadata.candidates_token_count
+                total_tokens = response.usage_metadata.total_token_count
+                cost = (input_tokens / 1_000_000 * 0.075) + (output_tokens / 1_000_000 * 0.30)
+
+                return response.text.strip(), total_tokens, cost
                 
             except Exception as e:
                 error_msg = str(e)
@@ -443,11 +460,11 @@ class ImprovedHybridFilterPipeline:
                         time.sleep(wait_time)
                         continue
                     else:
-                        return "DISCARD: API rate limit exceeded"
+                        return "DISCARD: API rate limit exceeded", 0, 0.0
                 else:
-                    return f"ERROR: {error_msg}"
+                    return f"ERROR: {error_msg}", 0, 0.0
         
-        return "DISCARD: Failed after all retries"
+        return "DISCARD: Failed after all retries", 0, 0.0
 
     def run(self, source_path: str):
         """이미지 필터링 실행"""
@@ -477,7 +494,7 @@ class ImprovedHybridFilterPipeline:
         
         for meta in all_meta:
             decision_type, s1_reason = self.step1_rule_check(meta)
-            
+
             final_status = ""
             filter_stage = ""
             detail_reason = ""
@@ -492,7 +509,7 @@ class ImprovedHybridFilterPipeline:
                 
             elif decision_type == "PENDING":
                 filter_stage = "2차 (AI)"
-                ai_res = self.step2_gemini_check(meta)
+                ai_res, tokens, cost = self.step2_gemini_check(meta)
                 
                 if ai_res.upper().startswith("KEEP"):
                     meta.is_core_content = True

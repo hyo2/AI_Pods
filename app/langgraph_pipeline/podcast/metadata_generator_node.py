@@ -250,9 +250,9 @@ class ImageDescriptionGenerator:
 
 출력: 명확하고 간결한 2-4문장만.
 """
-                
                 response = model.generate_content([image_part, prompt])
-                return response.text.strip()
+                description = response.text.strip()
+                return description
                 
             except Exception as e:
                 error_msg = str(e)
@@ -265,11 +265,11 @@ class ImageDescriptionGenerator:
                         print(" 재시도")
                         continue
                     else:
-                        return f"이미지 설명 생성 실패: API rate limit exceeded"
+                        return f"이미지 설명 생성 실패: API rate limit exceeded", 0, 0.0
                 else:
-                    return f"이미지 설명 생성 실패: {error_msg}"
+                    return f"이미지 설명 생성 실패: {error_msg}", 0, 0.0
         
-        return "이미지 설명 생성 실패: Failed after all retries"
+        return "이미지 설명 생성 실패: Failed after all retries", 0, 0.0
     
     def _get_mime_type(self, image_bytes: bytes) -> str:
         """이미지 바이너리에서 MIME 타입 감지"""
@@ -376,6 +376,7 @@ class MetadataGenerator:
             return str(output_path)
     
     def _process_primary_source(self, file_path: str) -> Dict[str, Any]:
+
         """
         주강의자료 처리
         ✅ TXT/URL 지원 추가 (수정됨)
@@ -445,7 +446,7 @@ class MetadataGenerator:
         # 4. 필터링 실행
         if all_images:
             print(f"   🔍 {len(all_images)}개 이미지 발견, 필터링 시작...")
-            
+
             for img_meta in all_images:
                 decision, reason = self.image_filter.step1_rule_check(img_meta)
                 
@@ -456,6 +457,11 @@ class MetadataGenerator:
                     
                 elif decision == "PENDING":
                     ai_result = self.image_filter.step2_gemini_check(img_meta)
+
+                    # step2_gemini_check가 (text, tokens, cost) 튜플을 반환하는 경우 대응
+                    if isinstance(ai_result, tuple):
+                        ai_result = ai_result[0]
+
                     if ai_result.upper().startswith("KEEP"):
                         img_meta.is_core_content = True
                         img_meta.filter_reason = ai_result
@@ -465,6 +471,7 @@ class MetadataGenerator:
         
         # 5. 이미지 설명 생성
         filtered_image_metadata = []
+        
         if filtered_images:
             print(f"   📝 이미지 설명 생성 중... (0/{len(filtered_images)})", end='', flush=True)
             
@@ -491,8 +498,14 @@ class MetadataGenerator:
                 
                 print(f"\r   📝 이미지 설명 생성 중... ({i}/{len(filtered_images)})", end='', flush=True)
             
-            print()
-        
+            print()  # 줄바꿈
+            
+            # ✅ 최종 집계 출력
+            print(f"\n   {'='*80}")
+            print(f"   📊 이미지 설명 생성 완료")
+            print(f"      - 처리된 이미지: {len(filtered_images)}개")
+            print(f"   {'='*80}\n")
+
         # 6. 통계
         total_images = len(all_images)
         passed_images = len(filtered_images)

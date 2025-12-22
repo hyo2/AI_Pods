@@ -39,3 +39,4 @@ class PodcastState(TypedDict):
     duration: int                 # 예상 지속 시간 (분)
     difficulty: str               #  [추가됨] 난이도 (basic, intermediate, advanced)
     user_prompt: str              # 사용자 지정 프롬프트
+    usage: Dict[str, Any]   # ✅ 토큰/비용 메타데이터

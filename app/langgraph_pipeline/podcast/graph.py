@@ -152,10 +152,15 @@ def generate_script_node(state: PodcastState) -> PodcastState:
             user_prompt=state.get('user_prompt', "")
         )
         
+        new_usage = state.get("usage", {})
+        if "usage" in result:
+            new_usage.update(result["usage"])
+
         return {
             **state,
             "title": result.get("title", "Untitled"),
             "script": result.get("script", ""),
+            "usage": new_usage,
             "current_step": "script_complete"
         }
     except Exception as e:
