@@ -190,7 +190,7 @@ class ScriptGenerator:
             combined_text = combined_text[:max_text_length] + "\n\n[... truncated ...]"
         
         # 2. 시간(분) 기반 글자 수 계산
-        chars_per_min = 500
+        chars_per_min = 700
         target_chars = duration * chars_per_min
 
         # 3. ✅ [NEW] 난이도별 지침 설정
