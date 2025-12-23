@@ -22,14 +22,10 @@ export default function PodcastContents({ outputId }: { outputId: number }) {
   const [data, setData] = useState<any>(null);
   const [parsedScript, setParsedScript] = useState<ParsedLine[]>([]);
   const [currentTime, setCurrentTime] = useState(0);
-  const [currentImage, setCurrentImage] = useState<ImageItem | null>(null);
   const [showDownloadMenu, setShowDownloadMenu] = useState(false);
 
   const [audioUrl, setAudioUrl] = useState("");
   const [scriptUrl, setScriptUrl] = useState("");
-  const [signedImageUrls, setSignedImageUrls] = useState<{
-    [key: number]: string;
-  }>({});
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const downloadMenuRef = useRef<HTMLDivElement | null>(null);
@@ -38,10 +34,8 @@ export default function PodcastContents({ outputId }: { outputId: number }) {
     setData(null);
     setParsedScript([]);
     setCurrentTime(0);
-    setCurrentImage(null);
     setAudioUrl("");
     setScriptUrl("");
-    setSignedImageUrls({});
 
     fetch(`${API_BASE_URL}/outputs/${outputId}`)
       .then((res) => res.json())
@@ -50,10 +44,6 @@ export default function PodcastContents({ outputId }: { outputId: number }) {
 
         const parsed = parseScript(res.output.script_text || "");
         setParsedScript(parsed);
-
-        if (res.images.length > 0) {
-          setCurrentImage(res.images[0]);
-        }
       })
       .catch((err) => {
         console.error("output detail fetch error:", err);
@@ -79,31 +69,12 @@ export default function PodcastContents({ outputId }: { outputId: number }) {
   }, [data]);
 
   useEffect(() => {
-    if (!data?.images) return;
-
-    const loadSignedImages = async () => {
-      const result: any = {};
-      for (const img of data.images) {
-        const res = await fetch(
-          `${API_BASE_URL}/storage/signed-url?path=${img.img_path}`
-        );
-        const json = await res.json();
-        result[img.img_index] = json.url;
-      }
-      setSignedImageUrls(result);
-    };
-
-    loadSignedImages();
-  }, [data]);
-
-  useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
 
     const handler = () => {
       const t = audio.currentTime;
       setCurrentTime(t);
-      updateCurrentImage(t);
     };
 
     audio.addEventListener("timeupdate", handler);
@@ -128,18 +99,6 @@ export default function PodcastContents({ outputId }: { outputId: number }) {
       document.removeEventListener("mousedown", handleClickOutside);
     };
   }, []);
-
-  const updateCurrentImage = (t: number) => {
-    if (!data?.images) return;
-
-    const img = data.images.find((i: ImageItem) => {
-      const start = parseFloat(i.start_time as any);
-      const end = parseFloat(i.end_time as any);
-      return t >= start && t <= end;
-    });
-
-    if (img) setCurrentImage(img);
-  };
 
   const jumpToTime = (sec: number) => {
     if (audioRef.current) {
@@ -210,11 +169,11 @@ export default function PodcastContents({ outputId }: { outputId: number }) {
     );
   }
 
-  const { output, images } = data;
+  const { output } = data;
 
   return (
     <div className="h-full flex flex-col bg-white">
-      {/* 상단: 제목 / 요약 / 오디오 */}
+      {/* 상단: 제목 / 오디오 */}
       <div className="flex-shrink-0 p-6 border-b">
         <h1 className="text-xl font-bold mb-2">{output.title}</h1>
 
@@ -243,49 +202,10 @@ export default function PodcastContents({ outputId }: { outputId: number }) {
         )}
       </div>
 
-      {/* 하단: 좌측 이미지 / 우측 스크립트 */}
+      {/* 하단: 스크립트 */}
       <div className="flex-1 flex gap-6 p-6 min-h-0 overflow-hidden">
-        {/* 좌측 이미지 */}
-        <div className="w-1/2 flex flex-col min-h-0">
-          {/* 메인 이미지 */}
-          <div className="flex-1 bg-gray-100 rounded-lg flex items-center justify-center overflow-hidden mb-3">
-            {currentImage && signedImageUrls[currentImage.img_index] ? (
-              <img
-                src={signedImageUrls[currentImage.img_index]}
-                className="max-h-full max-w-full object-contain rounded"
-                alt="Current"
-              />
-            ) : (
-              <div className="text-gray-400">이미지 없음</div>
-            )}
-          </div>
-
-          {/* 썸네일 - 고정 높이 + 가로 스크롤 */}
-          <div
-            className="flex-shrink-0 overflow-x-auto flex gap-2"
-            style={{ height: "100px" }}
-          >
-            {images.map((img: ImageItem) =>
-              signedImageUrls[img.img_index] ? (
-                <img
-                  key={img.img_index}
-                  src={signedImageUrls[img.img_index]}
-                  className={`h-full flex-shrink-0 rounded cursor-pointer transition-all ${
-                    currentImage?.img_index === img.img_index
-                      ? "ring-4 ring-blue-500"
-                      : "hover:ring-2 hover:ring-gray-300"
-                  }`}
-                  style={{ minWidth: "100px" }}
-                  onClick={() => jumpToTime(parseFloat(img.start_time as any))}
-                  alt={`Thumbnail ${img.img_index}`}
-                />
-              ) : null
-            )}
-          </div>
-        </div>
-
-        {/* 우측 스크립트 */}
-        <div className="w-1/2 flex flex-col min-h-0 border-l pl-6">
+        {/* 스크립트 */}
+        <div className="flex flex-col min-h-0 pl-6">
           {/* 스크립트 헤더 + 다운로드 메뉴 */}
           <div className="flex items-center justify-between mb-3 flex-shrink-0">
             <h2 className="font-semibold">스크립트</h2>
