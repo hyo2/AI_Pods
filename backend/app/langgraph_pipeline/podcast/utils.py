@@ -1,32 +1,53 @@
-# app/services/podcast/utils.py
+# app/langgraph_pipeline/podcast/utils.py
+
 import re
-import random
 import base64
 import struct
 from typing import List, Tuple
 
-def generate_korean_names() -> Tuple[str, str]:
-    """한국 이름을 자동으로 생성"""
-    surnames = ["김", "이", "박", "최", "정", "강", "조", "윤", "장", "임"]
-    given_names_host = ["지수", "민준", "서연", "하준", "예은"]
-    given_names_guest = ["준서", "현우", "지훈", "민서", "예준"]
-    
-    host_name = random.choice(surnames) + random.choice(given_names_host)
-    guest_name = random.choice(surnames) + random.choice(given_names_guest)
-    
-    while host_name == guest_name:
-        guest_name = random.choice(surnames) + random.choice(given_names_guest)
-    
-    return host_name, guest_name
+# [삭제됨] generate_korean_names 함수 및 random 임포트 제거
 
-
-def sanitize_tts_text(text: str, host_name: str = "", guest_name: str = "") -> str:
+def sanitize_tts_text(
+    text: str,
+    host_name: str = "",
+    guest_name: str | None = None
+) -> str:
     """TTS용 텍스트 정리"""
+
+    # 공백 정리
     text = re.sub(r"\s+", " ", text).strip()
-    text = re.sub(r'\[진행자\s*이름\]', host_name, text, flags=re.IGNORECASE)
-    text = re.sub(r'\[게스트\s*이름\]', guest_name, text, flags=re.IGNORECASE)
-    text = re.sub(r'[\x00-\x1f\x7f-\x9f\ufeff]', '', text)
+
+    # 진행자 이름 치환
+    text = re.sub(
+        r"\[진행자\s*이름\]",
+        host_name or "진행자",
+        text,
+        flags=re.IGNORECASE
+    )
+
+    # 게스트 이름 치환 (None 안전 처리)
+    if guest_name:
+        text = re.sub(
+            r"\[게스트\s*이름\]",
+            guest_name,
+            text,
+            flags=re.IGNORECASE
+        )
+    else:
+        # 게스트 없는 경우 placeholder 제거
+        text = re.sub(
+            r"\[게스트\s*이름\]",
+            "",
+            text,
+            flags=re.IGNORECASE
+        )
+
+    # 제어 문자 제거
+    text = re.sub(r"[\x00-\x1f\x7f-\x9f\ufeff]", "", text)
+
+    # 허용 문자만 남기기 (한글, 영문, 숫자, 기본 문장부호)
     text = re.sub(r"[^가-힣a-zA-Z0-9.,?! ]", "", text)
+
     return text.strip()
 
 

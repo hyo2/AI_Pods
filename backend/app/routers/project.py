@@ -5,7 +5,7 @@ from datetime import datetime
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 # 프로젝트 목록 조회
-@router.get("/")
+@router.get("")
 def list_projects(user_id: str):
     res = supabase.table("projects") \
         .select("*") \

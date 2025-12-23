@@ -4,63 +4,60 @@ import re
 import time
 import uuid
 import logging
+import subprocess
 from typing import List, Dict, Any
 from vertexai.generative_models import GenerativeModel
 from .utils import sanitize_tts_text, chunk_text, base64_to_bytes, pcm_to_wav
 
 logger = logging.getLogger(__name__)
 
-# TTS 설정
-MAX_RETRIES = 10
-BASE_DELAY = 2.0
-INTER_CHUNK_DELAY = 1.0
-SPEAKER_TURN_DELAY = 0.5
+MAX_RETRIES = 5           
+BASE_DELAY = 1.0          
+INTER_CHUNK_DELAY = 1.0   
+SPEAKER_TURN_DELAY = 0.5  
+
+FIXED_STUDENT_VOICE = "Leda"
+STUDENT_PITCH_FACTOR = 1.15
+
+
+def get_wav_output_dir() -> str:
+    """환경에 맞는 WAV 출력 디렉토리 반환"""
+    base = os.getenv("BASE_OUTPUT_DIR", "outputs")
+    return os.path.join(base, "podcasts", "wav")
 
 
 class TTSService:
     """Vertex AI TTS 서비스"""
     
     def __init__(self):
-        self.model = GenerativeModel("gemini-2.5-flash-preview-tts")
-        self.speaker_map = {
-            "진행자": "Charon",
-            "게스트": "Puck"
-        }
+        self.model = GenerativeModel("gemini-2.5-flash-preview-tts") 
     
     def generate_audio(
         self, 
         script: str, 
         host_name: str, 
-        guest_name: str
+        guest_name: str | None = None
     ) -> tuple[List[Dict[str, Any]], List[str]]:
-        """
-        스크립트를 TTS로 변환
-        
-        Returns:
-            (audio_metadata, wav_files)
-        """
-        logger.info("Multi-Speaker TTS 변환 시작...")
+        """스크립트를 TTS로 변환"""
+        logger.info(f"TTS 변환 시작 - 선생님: {host_name}, 학생: {FIXED_STUDENT_VOICE} (Pitch x{STUDENT_PITCH_FACTOR})")
         
         audio_metadata = []
-        
-        # 스크립트 파싱
         segments = re.split(r"\[([^\]]+)\]", script)
         
         if len(segments) <= 1:
-            segments = ["", "진행자", script]
+            segments = ["", "선생님", script]
         
         base_filename = f"podcast_temp_{uuid.uuid4().hex[:4]}"
         i = 1
         
         while i < len(segments):
-            speaker = segments[i].strip()
+            speaker_tag = segments[i].strip()
             raw_content = segments[i + 1].strip()
             i += 2
             
             if not raw_content:
                 continue
             
-            # 긴 텍스트는 청크로 분할
             content_chunks = chunk_text(raw_content, max_chars=200)
             
             for chunk_index, content in enumerate(content_chunks):
@@ -69,31 +66,35 @@ class TTSService:
                 if not sanitized_content:
                     continue
                 
-                voice_name = self.speaker_map.get(speaker, "Charon")
+                voice_name = host_name
+                is_student = False
                 
-                # TTS 생성 (재시도 로직 포함)
+                if any(role in speaker_tag for role in ["선생", "진행", "teacher", "host"]):
+                    voice_name = host_name
+                elif any(role in speaker_tag for role in ["학생", "게스트", "student", "guest"]):
+                    voice_name = FIXED_STUDENT_VOICE
+                    is_student = True
+                
                 audio_file = self._generate_single_audio(
                     sanitized_content,
                     voice_name,
-                    speaker,
+                    speaker_tag,
                     base_filename,
                     len(audio_metadata),
-                    chunk_index
+                    chunk_index,
+                    is_student=is_student
                 )
                 
                 if audio_file:
                     audio_metadata.append(audio_file)
                 
-                # 청크 간 대기
                 time.sleep(INTER_CHUNK_DELAY)
             
-            # 화자 전환 시 대기
             if content_chunks:
                 time.sleep(SPEAKER_TURN_DELAY)
         
         wav_files = [m['file'] for m in audio_metadata]
-        
-        logger.info(f"TTS 변환 완료: {len(wav_files)}개 파일 생성")
+        logger.info(f"TTS 변환 완료: 총 {len(wav_files)}개 파일")
         
         return audio_metadata, wav_files
     
@@ -104,9 +105,10 @@ class TTSService:
         speaker: str,
         base_filename: str,
         index: int,
-        chunk_index: int
+        chunk_index: int,
+        is_student: bool = False
     ) -> Dict[str, Any] | None:
-        """단일 오디오 청크 생성 (재시도 로직 포함)"""
+        """단일 오디오 청크 생성 및 후처리(피치 조절)"""
         
         for attempt in range(MAX_RETRIES):
             try:
@@ -124,6 +126,9 @@ class TTSService:
                     generation_config=config
                 )
                 
+                if not response.candidates:
+                     raise Exception("Candidate 없음")
+
                 candidate = response.candidates[0]
                 audio_data_part = next(
                     (p for p in candidate.content.parts
@@ -132,23 +137,52 @@ class TTSService:
                 )
                 
                 if not audio_data_part:
-                    raise Exception("응답에 오디오 데이터가 누락됨")
+                    raise Exception("오디오 데이터 누락")
                 
-                # PCM을 WAV로 변환
                 pcm_bytes = base64_to_bytes(audio_data_part.inline_data.data)
-                duration_seconds = len(pcm_bytes) / 48000.0
                 
-                # 파일 저장 경로 지정
-                output_dir = "outputs/podcasts/wav"
+                sample_rate = 24000
+                duration_seconds = len(pcm_bytes) / (sample_rate * 2)
+                
+                # ✅ 환경 변수 기반 경로 사용
+                output_dir = get_wav_output_dir()
                 os.makedirs(output_dir, exist_ok=True)
-
-                wav_bytes = pcm_to_wav(pcm_bytes, sample_rate=24000)
-                output_file = os.path.join(output_dir, f"{base_filename}_{index + 1}_{speaker}_{chunk_index}.wav")
-                # output_file = f"{base_filename}_{index + 1}_{speaker}_{chunk_index}.wav"
+                
+                safe_speaker = re.sub(r"[^a-zA-Z0-9가-힣]", "", speaker)
+                output_file = os.path.join(output_dir, f"{base_filename}_{index + 1}_{safe_speaker}_{chunk_index}.wav")
+                
+                wav_bytes = pcm_to_wav(pcm_bytes, sample_rate=sample_rate)
                 
                 with open(output_file, "wb") as f:
                     f.write(wav_bytes)
-                
+
+                if is_student:
+                    temp_file = output_file.replace(".wav", "_temp.wav")
+                    os.rename(output_file, temp_file)
+                    
+                    try:
+                        new_rate = int(sample_rate * STUDENT_PITCH_FACTOR)
+                        
+                        command = [
+                            "ffmpeg", "-i", temp_file,
+                            "-af", f"asetrate={new_rate},aresample={sample_rate}",
+                            "-y", output_file
+                        ]
+                        
+                        subprocess.run(
+                            command, 
+                            check=True, 
+                            capture_output=True 
+                        )
+                        
+                        os.remove(temp_file)
+                        duration_seconds = duration_seconds / STUDENT_PITCH_FACTOR
+                        
+                    except Exception as e:
+                        logger.error(f"피치 조절 실패 (원본 사용): {e}")
+                        if os.path.exists(temp_file):
+                            os.rename(temp_file, output_file)
+
                 return {
                     'speaker': speaker,
                     'text': text,
@@ -157,12 +191,18 @@ class TTSService:
                 }
                 
             except Exception as e:
+                if "429" in str(e) or "quota" in str(e).lower():
+                    wait_time = 10.0 * (attempt + 1)
+                    logger.warning(f"🚨 쿼터 주의(429) - {wait_time}초 대기...")
+                    time.sleep(wait_time)
+                    continue
+                
                 if attempt < MAX_RETRIES - 1:
                     delay = BASE_DELAY * (2 ** attempt)
-                    logger.warning(f"TTS 재시도 {attempt + 1}/{MAX_RETRIES} ({delay}초 후)")
+                    logger.warning(f"TTS 재시도 {attempt + 1}/{MAX_RETRIES} ({delay:.1f}초 후)")
                     time.sleep(delay)
                 else:
-                    logger.error(f"TTS 생성 실패: {str(e)}")
+                    logger.error(f"TTS 최종 실패: {str(e)}")
                     return None
         
         return None
