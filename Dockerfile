@@ -26,4 +26,4 @@ COPY . .
 EXPOSE 8000
 
 # 앱 실행 (Railway Settings와 동일하게 --proxy-headers 추가)
-CMD uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers
+CMD ["sh", "-c", "echo '===== FFMPEG BUILD CONF =====' && ffmpeg -buildconf && echo '===== FFMPEG LICENSE =====' && ffmpeg -L && uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers"]
