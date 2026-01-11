@@ -348,7 +348,7 @@ const UploadAndOptionsPage = () => {
         </div>
 
         <p className="text-xs text-gray-500 text-center mt-4">
-          예상시간: 5~10분 소요.
+          예상시간: 10~15분 소요<div className=""></div>
           <br />
           콘텐츠의 자연스러운 흐름을 위해, 선택한 길이와 약 1분 내외의 차이가
           있을 수 있습니다.

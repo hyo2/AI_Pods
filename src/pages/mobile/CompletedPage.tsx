@@ -32,6 +32,7 @@ const CompletedPage = () => {
   const [duration, setDuration] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
+  const SPEED_RATES = [1, 1.25, 1.5, 2, 0.75, 0.5];
   const [audioUrl, setAudioUrl] = useState("");
 
   const [showFullScript, setShowFullScript] = useState(false);
@@ -81,8 +82,8 @@ const CompletedPage = () => {
   }, [audioUrl]);
 
   const changeSpeed = () => {
-    const rates = [1, 1.25, 1.5, 2];
-    const next = rates[(rates.indexOf(playbackRate) + 1) % rates.length];
+    const next =
+      SPEED_RATES[(SPEED_RATES.indexOf(playbackRate) + 1) % SPEED_RATES.length];
     setPlaybackRate(next);
     if (audioRef.current) {
       audioRef.current.playbackRate = next;
@@ -218,10 +219,24 @@ const CompletedPage = () => {
         {/* Player Card */}
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6 mb-4">
           {/* Info */}
-          <div className="mb-4">
+          <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2 text-gray-600 text-sm mb-1">
               <span>⏱️ {formatTime(duration)}</span>
             </div>
+
+            {/* Speed */}
+            <button
+              onClick={changeSpeed}
+              className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                playbackRate > 1
+                  ? "bg-blue-600 text-white border-blue-600"
+                  : playbackRate < 1
+                  ? "bg-blue-100 text-blue-700 border-blue-200"
+                  : "border-gray-300 text-gray-700"
+              }`}
+            >
+              {playbackRate}x
+            </button>
           </div>
 
           {/* Progress Bar */}
@@ -268,18 +283,6 @@ const CompletedPage = () => {
             <div className="flex justify-center gap-3">
               <button onClick={() => jumpRelative(10)}>
                 <span className="text-xl">⏭</span>
-              </button>
-
-              {/* Speed */}
-              <button
-                onClick={changeSpeed}
-                className={`text-xs px-3 py-1 rounded-full border ${
-                  playbackRate !== 1
-                    ? "bg-gray-900 text-white border-gray-900"
-                    : "border-gray-300 text-gray-700"
-                }`}
-              >
-                {playbackRate}x
               </button>
             </div>
           </div>

@@ -1,0 +1,12 @@
+<!-- public/favicon.svg -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- 검정 배경 -->
+  <rect width="64" height="64" rx="12" fill="#000"></rect>
+
+  <!-- AlanLogo.tsx의 첫 번째 path(A)만 사용: 흰색 -->
+  <!-- 원본 viewBox(0 0 75 20)에서 A 영역은 대략 x:0~23, y:0~20 이라서
+       64x64 안에 보기 좋게 키워서 중앙에 배치하도록 transform 적용 -->
+  <g transform="translate(10 13) scale(1.9)">
+    <path d="M23.0946 19.5984H18.8098L16.8157 15.743H6.19808L4.25781 19.5984H0L9.70035 0.910309H13.1777L23.0946 19.5984ZM11.453 5.38153L7.70718 12.7711H15.2796L11.453 5.38153Z" fill="#fff"></path>
+  </g>
+</svg>

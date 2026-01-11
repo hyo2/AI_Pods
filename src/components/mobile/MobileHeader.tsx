@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Bell, User } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import AlanLogo from "./AlanMobileLogo";
 
 const MobileHeader = () => {
   const navigate = useNavigate();
@@ -30,8 +31,14 @@ const MobileHeader = () => {
         className="flex items-center gap-2 cursor-pointer"
         onClick={() => navigate("/mobile")}
       >
-        <div className="w-8 h-8 bg-gray-900 rounded flex items-center justify-center">
+        {/* 기존 A 로고 */}
+        {/* <div className="w-8 h-8 bg-gray-900 rounded flex items-center justify-center">
           <span className="text-white font-bold text-sm">A</span>
+        </div> */}
+
+        {/* Alan 워드마크: 검정 박스 + 넉넉한 padding */}
+        <div className="bg-black rounded-md px-1 py-1 flex items-center">
+          <AlanLogo className="text-white" width={60} height={18} />
         </div>
         <h1 className="text-base font-bold">AI Pods</h1>
       </div>
