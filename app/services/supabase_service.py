@@ -23,6 +23,20 @@ BUCKET = "project_resources"
 def safe_filename(filename: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]", "_", filename)
 
+# 프론트에서 바로 업로드할 때 쓰는 용
+def create_signed_upload(bucket: str, path: str, expires_in: int = 3600, upsert: bool = False):
+    """
+    storage3 버전 차이로 create_signed_upload_url 시그니처가 제각각이라,
+    우선 '기본 호출'로만 signed upload token을 발급한다.
+    """
+    res = supabase.storage.from_(bucket).create_signed_upload_url(path)
+
+    # supabase-py 응답 형태 방어적으로 처리
+    if isinstance(res, dict) and "data" in res:
+        return res["data"]
+    data = getattr(res, "data", None)
+    return data if data is not None else res
+
 # Storage에 파일 업로드(bytes) 후 public URL 반환
 def upload_bytes(file_bytes, folder, filename, content_type=None):
     path = f"{folder}/{filename}"
@@ -45,6 +59,7 @@ def upload_bytes(file_bytes, folder, filename, content_type=None):
     # return supabase.storage.from_(BUCKET).get_public_url(path)
     return path 
 
+# signend_url 생성
 def create_signed_url(path: str, expires_in: int = 3600) -> str:
     signed = supabase.storage.from_(BUCKET).create_signed_url(path, expires_in)
     if isinstance(signed, dict):
