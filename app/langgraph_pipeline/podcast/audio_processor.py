@@ -8,8 +8,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-INTER_CHUNK_DELAY = 1.0
-
+INTER_CHUNK_DELAY = 0.05
 
 def get_output_dir() -> str:
     """환경에 맞는 출력 디렉토리 반환"""
@@ -104,7 +103,9 @@ class AudioProcessor:
             line = f"{timestamp} [{item['speaker']}]: {item['text']}"
             transcript_lines.append(line)
             
+            # 타임스탬프 계산
             current_time += item['duration'] + INTER_CHUNK_DELAY
+
         
         # ✅ output_path에서 파일명 추출 후 .txt로 변경
         if not output_path or not os.path.basename(output_path):

@@ -10,6 +10,9 @@ from fastapi.responses import FileResponse
 from fastapi import HTTPException
 import os
 
+import logging
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 from app.routers import auth, input, output, project, storage, voice
 from app.utils.vertex_env_patch import patch_vertex_ai_env
 

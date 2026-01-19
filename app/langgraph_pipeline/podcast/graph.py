@@ -16,6 +16,13 @@ from .audio_processor import AudioProcessor
 
 logger = logging.getLogger(__name__)
 
+def _should_stop(state: PodcastState) -> bool:
+    """에러 발생 시 다음 단계 진행을 막기 위한 공통 가드"""
+    if state.get("current_step") == "error":
+        return True
+    if state.get("errors"):
+        return True
+    return False
 
 def get_temp_output_dir() -> str:
     """환경에 맞는 임시 출력 디렉토리 반환"""
@@ -218,12 +225,47 @@ def create_podcast_graph():
     workflow.add_node("generate_transcript", generate_transcript_node)
 
     workflow.set_entry_point("extract_texts")
-    workflow.add_edge("extract_texts", "combine_texts")
-    workflow.add_edge("combine_texts", "generate_script")
-    workflow.add_edge("generate_script", "generate_audio")
-    workflow.add_edge("generate_audio", "merge_audio")
-    workflow.add_edge("merge_audio", "generate_transcript")
-    workflow.add_edge("generate_transcript", END)
+    # extract_texts -> (성공) combine_texts / (실패) END
+    workflow.add_conditional_edges(
+        "extract_texts",
+        lambda s: "stop" if _should_stop(s) else "next",
+        {"next": "combine_texts", "stop": END},
+    )
+
+    # combine_texts -> generate_script or END
+    workflow.add_conditional_edges(
+        "combine_texts",
+        lambda s: "stop" if _should_stop(s) else "next",
+        {"next": "generate_script", "stop": END},
+    )
+
+    # generate_script -> generate_audio or END
+    workflow.add_conditional_edges(
+        "generate_script",
+        lambda s: "stop" if _should_stop(s) else "next",
+        {"next": "generate_audio", "stop": END},
+    )
+
+    # generate_audio -> merge_audio or END
+    workflow.add_conditional_edges(
+        "generate_audio",
+        lambda s: "stop" if _should_stop(s) else "next",
+        {"next": "merge_audio", "stop": END},
+    )
+
+    # merge_audio -> generate_transcript or END
+    workflow.add_conditional_edges(
+        "merge_audio",
+        lambda s: "stop" if _should_stop(s) else "next",
+        {"next": "generate_transcript", "stop": END},
+    )
+
+    # generate_transcript -> END (여기서도 errors 있으면 그냥 END)
+    workflow.add_conditional_edges(
+        "generate_transcript",
+        lambda s: "stop" if _should_stop(s) else "next",
+        {"next": END, "stop": END},
+    )
 
     return workflow.compile(checkpointer=MemorySaver())
 

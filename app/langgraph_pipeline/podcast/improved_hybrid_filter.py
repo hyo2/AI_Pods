@@ -12,19 +12,56 @@ import os
 import vertexai
 import textwrap
 import json
+import logging
 from dataclasses import dataclass
 from typing import List, Dict
 from pptx import Presentation
 from vertexai.generative_models import GenerativeModel, Part
 
-# [1] 인증 설정
-SERVICE_ACCOUNT_FILE = "vertex-ai-service-account.json"
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = SERVICE_ACCOUNT_FILE
-PROJECT_ID = "alan-document-lab" 
-vertexai.init(project=PROJECT_ID, location="us-central1")
+logger = logging.getLogger(__name__)
 
-# [2] Gemini 2.5 Flash 모델 로드
-model = GenerativeModel("gemini-2.5-flash")
+import os
+import logging
+logger = logging.getLogger(__name__)
+
+def _resolve_vertex_sa_file() -> str | None:
+    # 프로젝트에서 쓰는 키 우선순위
+    for key in ("VERTEX_AI_SERVICE_ACCOUNT_FILE", "VERTEX_AI_SERVICE_ACCOUNT_JSON", "GOOGLE_APPLICATION_CREDENTIALS"):
+        p = os.getenv(key)
+        if p and os.path.exists(p):
+            return p
+    return None
+
+def get_vertex_text_model():
+    """
+    키워드 추출/이미지 판단(vision)에서 쓰는 Gemini 모델 lazy init.
+    - 인증 파일 없으면 None 반환 (로컬 데모에서 vision만 스킵 가능)
+    """
+    try:
+        sa_file = _resolve_vertex_sa_file()
+        if not sa_file:
+            logger.warning("ℹ️ Vertex 서비스 계정 파일이 없어 Gemini 호출을 스킵합니다.")
+            return None
+
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = sa_file
+
+        import vertexai
+        from vertexai.generative_models import GenerativeModel
+
+        project_id = os.getenv("VERTEX_AI_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
+        location = os.getenv("VERTEX_AI_LOCATION", "us-central1")
+
+        if project_id:
+            vertexai.init(project=project_id, location=location)
+        else:
+            vertexai.init(location=location)
+
+        model_name = os.getenv("VERTEX_AI_TEXT_MODEL", "gemini-2.5-flash")
+        return GenerativeModel(model_name)
+
+    except Exception as e:
+        logger.exception(f"Vertex/Gemini 초기화 실패: {e}")
+        return None
 
 @dataclass
 class ImageMetadata:
@@ -106,8 +143,8 @@ class UniversalImageExtractor:
                 os.environ['FLAGS_log_level'] = '3'
                 os.environ['PPOCR_SHOW_LOG'] = 'False'
                 
-                print(f"      → PaddleOCR 초기화 중...")
-                self._ocr_engine = PaddleOCR(lang='korean', use_textline_orientation=True)
+                logger.info("      → PaddleOCR 초기화 중...")
+                self._ocr_engine = PaddleOCR(lang="korean", use_angle_cls=True, show_log=False)
             
             pix = page.get_pixmap(dpi=150)
             img_data = pix.tobytes("png")
@@ -129,13 +166,14 @@ class UniversalImageExtractor:
                         lines.append(ocr_text)
                 
                 ocr_result = "\n".join(lines)
-                print(f"      → 페이지 OCR: {text_length}자 → {len(ocr_result)}자")
+                logger.info(f"      → 페이지 OCR: {text_length}자 → {len(ocr_result)}자")
                 return ocr_result if ocr_result else text
         
         except ImportError:
             pass
         except Exception as e:
-            print(f"      ⚠️  OCR 실패: {e}")
+            # 반복 경고가 너무 많아질 수 있어 DEBUG로 내림 (필요 시 로그레벨 조정)
+            logger.debug(f"      OCR 실패: {e}")
         
         return text
     
@@ -195,9 +233,16 @@ class UniversalImageExtractor:
                 # ===== get_images()로 모든 이미지 감지 =====
                 images = page.get_images(full=True)
                 total_images += len(images)
-                
-                print(f"      [P{page_num+1}] 총 {len(images)}개 이미지 발견")
-                
+
+                # 페이지 단위 요약을 위해 페이지별 카운터를 별도로 집계
+                page_filtered_background = 0
+                page_filtered_aspect = 0
+                page_filtered_area = 0
+                page_filtered_size = 0
+                page_kept = 0
+
+                logger.debug(f"      [P{page_num+1}] 총 {len(images)}개 이미지 발견")
+
                 for img in images:
                     try:
                         xref = img[0]
@@ -221,7 +266,8 @@ class UniversalImageExtractor:
                         # ===== 필터 1: 배경 제외 (90% 이상) =====
                         if area_pct > MAX_AREA_PCT:
                             filtered_background += 1
-                            print(debug_msg + f" → 배경 제외 ❌")
+                            page_filtered_background += 1
+                            logger.debug(debug_msg + " → 배경 제외")
                             continue
                         
                         # ===== 필터 2: 가로세로비 =====
@@ -229,30 +275,35 @@ class UniversalImageExtractor:
                             aspect_ratio = max(width, height) / min(width, height)
                             if aspect_ratio > MAX_ASPECT_RATIO:
                                 filtered_aspect += 1
-                                print(debug_msg + f" → 가로세로비 제외 ({aspect_ratio:.1f}:1) ❌")
+                                page_filtered_aspect += 1
+                                logger.debug(debug_msg + f" → 가로세로비 제외 ({aspect_ratio:.1f}:1)")
                                 continue
                         
                         # ===== 필터 3: 작은 면적 =====
                         pixel_area = width * height
                         if pixel_area < MIN_PIXEL_AREA:
                             filtered_area += 1
-                            print(debug_msg + f" → 작은 면적 제외 ❌")
+                            page_filtered_area += 1
+                            logger.debug(debug_msg + " → 작은 면적 제외")
                             continue
                         
                         # ===== 필터 4: 절대 크기 =====
                         if width < MIN_WIDTH or height < MIN_HEIGHT:
                             filtered_size += 1
-                            print(debug_msg + f" → 작은 크기 제외 ❌")
+                            page_filtered_size += 1
+                            logger.debug(debug_msg + " → 작은 크기 제외")
                             continue
                         
                         # ===== 필터 5: 상대 크기 =====
                         if area_pct < MIN_AREA_PCT:
                             filtered_size += 1
-                            print(debug_msg + f" → 상대 크기 제외 ({area_pct:.1f}%) ❌")
+                            page_filtered_size += 1
+                            logger.debug(debug_msg + f" → 상대 크기 제외 ({area_pct:.1f}%)")
                             continue
                         
                         # ===== 통과! =====
-                        print(debug_msg + " → 최종 추출 ✅✅✅")
+                        page_kept += 1
+                        logger.debug(debug_msg + " → 최종 추출")
                         
                         # 이미지 추출
                         try:
@@ -274,24 +325,32 @@ class UniversalImageExtractor:
                         ))
                     
                     except Exception as e:
-                        print(f"      ⚠️ 이미지 처리 실패: {e}")
+                        logger.debug(f"      이미지 처리 실패: {e}")
                         continue
+
+                # 페이지 단위 요약 로그 (기본 INFO)
+                logger.info(
+                    f"[P{page_num+1}] 발견 {len(images)}개 → "
+                    f"제외(배경 {page_filtered_background}, 비율 {page_filtered_aspect}, "
+                    f"면적 {page_filtered_area}, 크기 {page_filtered_size}) → "
+                    f"추출 {page_kept}"
+                )
             
             doc.close()
         
         except Exception as e:
-            print(f"   ❌ PDF 처리 실패: {e}")
+            logger.error(f"   ❌ PDF 처리 실패: {e}")
             return []
         
-        # 통계
-        print(f"\n   📊 PDF 이미지 분석:")
-        print(f"      - 전체 이미지: {total_images}개")
-        print(f"   🔍 필터링 통계:")
-        print(f"      - 배경 제외: {filtered_background}개")
-        print(f"      - 가로세로비: {filtered_aspect}개")
-        print(f"      - 작은 면적: {filtered_area}개")
-        print(f"      - 작은 크기: {filtered_size}개")
-        print(f"   ✅ 최종 추출: {len(metadata_list)}개 이미지\n")
+        # 통계 (요약만 INFO로 출력)
+        logger.info("\n   📊 PDF 이미지 분석:")
+        logger.info(f"      - 전체 이미지: {total_images}개")
+        logger.info("   🔍 필터링 통계:")
+        logger.info(f"      - 배경 제외: {filtered_background}개")
+        logger.info(f"      - 가로세로비: {filtered_aspect}개")
+        logger.info(f"      - 작은 면적: {filtered_area}개")
+        logger.info(f"      - 작은 크기: {filtered_size}개")
+        logger.info(f"   ✅ 최종 추출: {len(metadata_list)}개 이미지\n")
         
         return metadata_list
 
@@ -300,6 +359,7 @@ class UniversalImageExtractor:
 class ImprovedHybridFilterPipeline:
     def __init__(self, auto_extract_keywords: bool = True):
         self.auto_extract = auto_extract_keywords
+        self.model = get_vertex_text_model()
         
         self.UNIVERSAL_PATTERNS = [
             '학습', '활동', '문제', '예제', '연습',
@@ -365,7 +425,12 @@ class ImprovedHybridFilterPipeline:
 """
         
         try:
-            response = model.generate_content(prompt)
+            if self.model is None:
+                print("   ⚠️ Gemini 모델 초기화 실패(인증 없음). 키워드 자동 추출 스킵.")
+                self.document_keywords = []
+                return
+
+            response = self.model.generate_content(prompt)
 
             # ✅ 토큰 추출
             usage = response.usage_metadata
@@ -439,7 +504,11 @@ class ImprovedHybridFilterPipeline:
 
 출력: KEEP 또는 DISCARD로 시작
 """
-                response = model.generate_content([image_part, prompt])
+                if self.model is None:
+                    return "DISCARD: Gemini unavailable (no credentials)", 0, 0.0
+
+                response = self.model.generate_content([image_part, prompt])
+
 
                 # ✅ 토큰 및 비용 계산 추가
                 # ✅ Gemini 2.5 Flash 공식 단가 적용
@@ -606,3 +675,6 @@ if __name__ == "__main__":
         print("  - 만화 콘텐츠 정상 인식")
         print("  - 배경 이미지 자동 제외")
         print("="*120 + "\n")
+
+# ✅ 하위 호환용 전역 model 제공 (기존 metadata_generator_node import 깨짐 방지)
+model = get_vertex_text_model()

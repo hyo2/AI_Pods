@@ -1,0 +1,463 @@
+# app/langgraph_pipeline/podcast/script/postprocess.py
+import re
+import logging
+from typing import Dict
+from ..utils import estimate_korean_chars_for_budget
+from .cleanup import clean_script
+
+logger = logging.getLogger(__name__)
+
+def get_default_closing(is_dialogue: bool, last_speaker: str = None) -> str:
+    if is_dialogue:
+        if last_speaker == "student":
+            return (
+                "[선생님]: 네, 오늘 배운 핵심 내용들을 잘 복습하시면 큰 도움이 될 거예요. "
+                "궁금한 점이 있으면 언제든 질문해 주시고, 다음 시간에 또 뵙겠습니다. 수고하셨습니다!"
+            )
+        return (
+            "[학생]: 오늘 정말 많은 것을 배웠습니다. 선생님 감사합니다!\n"
+            "[선생님]: 네, 잘 이해하셨네요. 오늘 배운 내용을 실습해보시면서 더 깊이 있게 공부해 보시기 바랍니다. "
+            "다음 시간에 또 뵙겠습니다. 수고하셨습니다!"
+        )
+    return (
+        "[선생님]: 오늘 학습한 내용이 여러분의 이해에 도움이 되었기를 바랍니다. "
+        "핵심 개념들을 잘 정리하시고, 실제로 적용해 보면서 학습을 이어가시기 바랍니다. "
+        "다음 시간에 뵙겠습니다. 감사합니다!"
+    )
+
+def hard_cap_fallback(
+    script_text: str,
+    budget: int,
+    model,
+    style: str,
+    extract_text_fn,
+) -> str:
+    is_dialogue = (style != "lecture")
+    # 10분/15분에서 0.75는 너무 공격적이라 컷 비율을 상향
+    if budget <= 2200:      # 5분(2000자) 근처
+        cut_ratio = 0.90
+    elif budget <= 4500:    # 10분(4000자) 근처
+        cut_ratio = 0.88
+    else:                   # 15분(6000자) 이상
+        cut_ratio = 0.85
+
+    target_cut = int(budget * cut_ratio)
+    logger.info(f"[하드캡 컷 비율] budget={budget}, cut_ratio={cut_ratio}, target_cut={target_cut}")
+
+    lines = [ln.strip() for ln in script_text.splitlines() if ln.strip()]
+    accumulated = ""
+    cut_lines = []
+    teacher_count = 0
+    student_count = 0
+
+    for line in lines:
+        test_text = (accumulated + "\n" + line).strip()
+        current_len = estimate_korean_chars_for_budget(test_text)
+
+        if re.match(r"^\[선생님\]", line):
+            teacher_count += 1
+        elif re.match(r"^\[학생\]", line):
+            student_count += 1
+
+        if current_len > target_cut:
+            if re.match(r"^\[(선생님|학생)\]", line):
+                break
+            remaining_budget = target_cut - estimate_korean_chars_for_budget(accumulated)
+            if remaining_budget > 50:
+                sentences = re.split(r"([.!?]\s+)", line)
+                partial = ""
+                for sent in sentences:
+                    if estimate_korean_chars_for_budget(accumulated + "\n" + partial + sent) <= target_cut:
+                        partial += sent
+                    else:
+                        break
+                if partial.strip():
+                    cut_lines.append(partial.strip())
+            break
+
+        cut_lines.append(line)
+        accumulated = test_text
+
+    truncated = "\n".join(cut_lines).strip()
+    truncated_len = estimate_korean_chars_for_budget(truncated)
+
+    last_speaker = None
+    if is_dialogue:
+        for line in reversed(cut_lines):
+            if re.match(r"^\[선생님\]", line):
+                last_speaker = "teacher"
+                break
+            if re.match(r"^\[학생\]", line):
+                last_speaker = "student"
+                break
+        logger.info(f"[하드캡] {truncated_len}자 / 선생님:{teacher_count} / 학생:{student_count} / 마지막:{last_speaker}")
+
+        # ✅ 마지막 학생 질문 추출 (질문으로 끝났는데 답이 없는 케이스 방지)
+    last_student_q = None
+    if is_dialogue:
+        for line in reversed(cut_lines):
+            if re.match(r"^\[학생\]", line):
+                # 물음표가 있거나, 질문 말투(예: ~까요/~나요)가 있으면 질문으로 간주
+                if ("?" in line) or re.search(r"(까요|나요|할까요|뭘까요|뭔가요|인가요)\b", line):
+                    last_student_q = line.strip()
+                    break
+
+    remaining_budget = max(0, budget - truncated_len)
+
+    if is_dialogue:
+        closing_prompt = f"""
+    다음은 대화형 팟캐스트의 일부입니다. 이 대화를 자연스럽고 완결되게 마무리하세요.
+
+    **CRITICAL - 화자 태그 규칙 (매우 중요):**
+    - 반드시 각 줄 시작에 [선생님]: 또는 [학생]: 태그 사용
+    - "진행자", "청취자", "호스트", "게스트" 같은 표현 절대 금지
+    - 태그 형식: [선생님]: ... 또는 [학생]: ...
+    - 다른 형식 사용 시 오류 발생
+
+    **내용 규칙:**
+    - 남은 예산: {remaining_budget}자 (±20%)
+    - 대화 형식 유지
+    - 첫 줄은 반드시 [선생님]: 으로 시작
+    - (아래에 학생 질문이 있으면) 반드시 그 질문에 대한 답변으로 시작
+    - 마지막 학생 질문이 존재하면, 반드시 [선생님]: 으로 그 질문에 대한 '직접적인 답'을 2~4문장으로 먼저 작성
+    - 마지막은 반드시 [선생님]이 격려+인사로 끝내기
+
+    **올바른 예시:**
+    [학생]: 오늘 정말 유익했습니다!
+    [선생님]: 네, 잘 이해하셨네요. 다음 시간에 뵙겠습니다!
+
+    **잘못된 예시 (절대 금지):**
+    청취자: 감사합니다
+    진행자: 다음에 또 만나요
+    """.strip()
+
+        
+        if last_student_q:
+            closing_prompt += f"""
+
+    **마지막 학생 질문(반드시 먼저 답변할 것):**
+    {last_student_q}
+    """.strip()
+
+        closing_prompt += f"""
+
+    [참고: 마지막 부분]
+    {truncated[-800:]}
+
+    [마무리 생성 - 반드시 [선생님]: 또는 [학생]: 태그 사용]
+    """.strip()
+
+    else:
+        closing_prompt = f"""
+다음은 강의의 일부입니다. 강의를 자연스럽게 완결하세요.
+
+- 남은 예산: {remaining_budget}자 (±20%)
+- 반드시 '[선생님]:' 형식 유지
+
+[참고: 마지막 부분]
+{truncated[-800:]}
+
+[마무리 생성]
+"""
+
+    try:
+        resp = model.generate_content(
+            closing_prompt,
+            generation_config={"max_output_tokens": min(2048, max(256, remaining_budget * 3)), "temperature": 0.2},
+        )
+        closing = clean_script(extract_text_fn(resp))
+
+        if estimate_korean_chars_for_budget(closing) < 80:
+            closing = get_default_closing(is_dialogue, last_speaker if is_dialogue else None)
+
+        # 대화형이면 선생님으로 끝나는지 보정
+        if is_dialogue and not re.search(r"\[선생님\][^\[]*$", closing, re.DOTALL):
+            closing = closing.rstrip() + "\n[선생님]: 오늘 배운 내용을 잘 복습하시고, 다음 시간에 또 뵙겠습니다. 수고하셨습니다!"
+
+        return (truncated + "\n" + closing).strip()
+
+    except Exception as e:
+        logger.error(f"[하드캡] 마무리 생성 오류: {e}")
+        return (truncated + "\n" + get_default_closing(is_dialogue, last_speaker if is_dialogue else None)).strip()
+
+def continue_script_fallback(
+    script_text: str,
+    budget: int,
+    model,
+    style: str,
+    extract_text_fn,
+) -> str:
+    is_dialogue = (style != "lecture")
+    current_len = estimate_korean_chars_for_budget(script_text)
+    remaining_budget = max(0, budget - current_len)
+
+    if remaining_budget < 200:
+        return (script_text + "\n" + get_default_closing(is_dialogue)).strip()
+
+    if is_dialogue:
+        prompt = f"""
+다음은 대화형 팟캐스트 스크립트입니다. 
+
+**중요: 먼저 현재 상태를 확인하세요**
+1. 스크립트 마지막을 보고 이미 마무리 인사(감사합니다, 수고하셨습니다 등)가 있는지 확인
+2. 있다면 → "ALREADY_COMPLETE" 만 출력하고 아무것도 추가하지 마세요
+3. 없다면 → 자연스럽게 내용을 이어가고 마무리하세요
+
+**이어쓰기 규칙 (마무리가 없는 경우에만):**
+- 대화 형식 유지
+- 화자 태그는 줄 시작에만: [선생님]: / [학생]:
+- 문장 중간에 [학생]님 금지
+- 선생님:학생 비율 7:3 근사
+- 추가 분량은 약 {remaining_budget}자 이내 (±20%)
+- **마무리 인사를 중복하지 마세요**
+
+[현재 마지막 부분]
+{script_text[-1200:]}
+
+[출력]
+"""
+    else:
+        prompt = f"""
+다음은 강의형 스크립트입니다.
+
+**중요: 먼저 현재 상태를 확인하세요**
+1. 스크립트 마지막을 보고 이미 마무리 인사가 있는지 확인
+2. 있다면 → "ALREADY_COMPLETE" 만 출력
+3. 없다면 → 자연스럽게 이어서 마무리하세요
+
+**이어쓰기 규칙:**
+- 반드시 [선생님]: 형식 유지
+- 추가 분량은 약 {remaining_budget}자 이내 (±20%)
+
+[현재 마지막 부분]
+{script_text[-1200:]}
+
+[출력]
+"""
+
+    try:
+        resp = model.generate_content(
+            prompt,
+            generation_config={"max_output_tokens": min(4096, max(512, remaining_budget * 3)), "temperature": 0.2},
+        )
+        cont = clean_script(extract_text_fn(resp))
+
+        # ✅ LLM이 이미 완결로 판단한 경우
+        if "ALREADY_COMPLETE" in cont[:100].upper():
+            logger.info("[이어쓰기 스킵] LLM이 스크립트가 이미 완결되었다고 판단")
+            return script_text
+
+        if estimate_korean_chars_for_budget(cont) < 120:
+            cont = get_default_closing(is_dialogue)
+
+        return (script_text.rstrip() + "\n" + cont.lstrip()).strip()
+
+    except Exception as e:
+        logger.error(f"[이어쓰기 폴백] 오류: {e}")
+        return (script_text + "\n" + get_default_closing(is_dialogue)).strip()
+
+def expand_script_fallback(
+    *,
+    script_text: str,
+    budget: int,
+    min_chars: int,
+    model,
+    style: str,
+    extract_text_fn,
+    max_add_chars: int = 2200,
+) -> str:
+    """
+    부족한 분량을 '한 번에' 확장하는 보강 루틴.
+    - 단순 이어쓰기가 아닌 내용 확장 전략
+    - 호출 1회로 큰 폭을 채우는 용도
+    """
+    from ..utils import estimate_korean_chars_for_budget
+    
+    current = estimate_korean_chars_for_budget(script_text)
+    need = max(0, min_chars - current)
+    need = min(need, max_add_chars)
+
+    if need <= 0:
+        return script_text
+
+    is_dialogue = (style != "lecture")
+
+    if is_dialogue:
+        prompt = f"""\
+당신은 팟캐스트 스크립트 편집자입니다.
+
+**임무**: 아래 대화형 스크립트의 본론 부분을 확장하여 **약 {need}자**를 추가하세요.
+
+**중요 전략**:
+1. 마무리 인사는 절대 추가하지 마세요 (이미 존재함)
+2. **본론 중간**에 내용을 자연스럽게 삽입:
+   - 더 자세한 설명
+   - 구체적인 예시 추가
+   - 학생의 추가 질문과 선생님의 답변
+   - 비유나 실생활 적용 사례
+
+**규칙**:
+- 대화 형식 유지: [선생님]/[학생]
+- 선생님:학생 비율 7:3 유지
+- 논리적 흐름 유지
+- **기존 마무리는 그대로 유지** (마무리를 다시 작성하지 마세요)
+
+[현재 스크립트]
+{script_text}
+
+[확장된 스크립트 전체를 출력 - 본론은 풍부하게, 마무리는 그대로]
+"""
+    else:
+        prompt = f"""\
+당신은 팟캐스트 스크립트 편집자입니다.
+
+**임무**: 아래 강의형 스크립트를 확장하여 **약 {need}자**를 추가하세요.
+
+**중요 전략**:
+1. 마무리 인사는 절대 추가하지 마세요
+2. 본론 중간에 내용을 자연스럽게 삽입:
+   - 더 자세한 설명
+   - 구체적인 예시
+   - 심화 내용
+
+**규칙**:
+- [선생님]: 형식 유지
+- 논리적 흐름 유지
+- 기존 마무리는 그대로 유지
+
+[현재 스크립트]
+{script_text}
+
+[확장된 스크립트 전체를 출력]
+"""
+
+    try:
+        resp = model.generate_content(
+            prompt,
+            generation_config={
+                "max_output_tokens": min(6144, max(2048, (current + need) * 3)),
+                "temperature": 0.3
+            }
+        )
+        expanded = clean_script(extract_text_fn(resp))
+
+        if not expanded or estimate_korean_chars_for_budget(expanded) < current:
+            logger.warning("[확장 실패] 원본보다 짧거나 빈 결과 → 원본 유지")
+            return script_text
+
+        # 혹시 마무리 키워드가 중복되었다면 경고
+        closing_count = len(re.findall(r'(감사합니다|수고하셨습니다)', expanded))
+        if closing_count > 2:
+            logger.warning(f"[확장 결과] 마무리 키워드 {closing_count}회 출현 - 중복 가능성")
+
+        return expanded
+
+    except Exception as e:
+        logger.error(f"[확장 폴백] 오류: {e}")
+        return script_text
+    
+def expand_middle_content(
+    script_text: str,
+    budget: int,
+    current_len: int,
+    structure: Dict,
+    model,
+    style: str,
+    extract_text_fn,
+) -> str:
+    """
+    마무리는 유지하고 중간 본론 부분만 확장
+    
+    전략:
+    1. 스크립트를 [도입 + 본론 + 마무리]로 분리
+    2. 본론 부분에 추가 내용 삽입
+    3. 마무리는 그대로 유지
+    """
+    from ..utils import estimate_korean_chars_for_budget
+    from .cleanup import clean_script
+    
+    is_dialogue = (style != "lecture")
+    lines = [l.strip() for l in script_text.strip().split('\n') if l.strip()]
+    
+    closing_idx = structure['closing_start_idx']
+    
+    # 마무리가 너무 빨리 시작되면 (전체의 50% 이전) 구조가 이상함
+    if closing_idx < len(lines) * 0.5:
+        logger.warning(f"[중간 확장 스킵] 마무리가 너무 이른 위치({closing_idx}/{len(lines)})")
+        return script_text
+    
+    # 분리
+    intro_and_main = '\n'.join(lines[:closing_idx])
+    closing = '\n'.join(lines[closing_idx:])
+    
+    need = budget - current_len
+    
+    if is_dialogue:
+        prompt = f"""
+당신은 팟캐스트 편집자입니다.
+
+**임무**: 아래 본론 부분을 확장하여 **약 {need}자**를 추가하세요.
+
+**중요**:
+1. 마무리 인사는 절대 추가하지 마세요 (별도로 제공됨)
+2. 본론에 자연스럽게 내용 추가:
+   - 더 자세한 설명
+   - 추가 예시
+   - 학생의 심화 질문과 선생님의 답변
+
+**규칙**:
+- 대화 형식 유지: [선생님]/[학생]
+- 논리적 흐름 유지
+- 선생님:학생 비율 7:3
+
+[확장할 본론 부분]
+{intro_and_main}
+
+[확장된 본론만 출력 - 마무리 인사 절대 금지]
+"""
+    else:
+        prompt = f"""
+당신은 팟캐스트 편집자입니다.
+
+**임무**: 아래 본론을 확장하여 **약 {need}자**를 추가하세요.
+
+**중요**:
+1. 마무리 인사는 절대 추가하지 마세요
+2. 본론에 내용 추가: 더 자세한 설명, 예시 등
+
+**규칙**:
+- [선생님]: 형식 유지
+- 논리적 흐름 유지
+
+[확장할 본론]
+{intro_and_main}
+
+[확장된 본론만 출력]
+"""
+    
+    try:
+        resp = model.generate_content(
+            prompt,
+            generation_config={
+                "max_output_tokens": min(6144, need * 4),
+                "temperature": 0.3
+            }
+        )
+        
+        expansion = clean_script(extract_text_fn(resp))
+        
+        # 혹시 마무리 키워드가 포함되었다면 제거
+        closing_patterns = r'(감사합니다|수고하셨습니다|다음\s*시간|여기서\s*마치|안녕).*$'
+        expansion = re.sub(closing_patterns, '', expansion, flags=re.DOTALL).strip()
+        
+        # 재조립
+        expanded_script = f"{expansion}\n{closing}".strip()
+        
+        expanded_len = estimate_korean_chars_for_budget(expanded_script)
+        logger.info(f"[중간 확장 완료] {current_len}자 → {expanded_len}자")
+        
+        return expanded_script
+        
+    except Exception as e:
+        logger.error(f"[중간 확장 실패] {e}")
+        return script_text

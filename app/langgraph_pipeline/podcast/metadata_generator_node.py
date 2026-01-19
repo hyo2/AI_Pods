@@ -19,6 +19,7 @@ Metadata Generator Node
 import os
 import json
 import tempfile
+import hashlib
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from datetime import datetime
@@ -69,43 +70,77 @@ class TextExtractor:
     
     def _perform_ocr(self, page) -> str:
         """
-        페이지에 OCR 수행 (PaddleOCR)
-        
-        Args:
-            page: PyMuPDF page 객체
-        
-        Returns:
-            OCR로 추출한 텍스트
+        페이지에 OCR 수행 (PaddleOCR / PaddleX 계열 호환)
         """
         if not self.ocr_enabled or ocr_engine is None:
             return ""
-        
+
         try:
-            pix = page.get_pixmap(dpi=150)
+            pix = page.get_pixmap(dpi=220)  # 150 -> 220 권장(스캔본)
             img_data = pix.tobytes("png")
-            
+
             import numpy as np
-            from PIL import Image
+            from PIL import Image, ImageOps
             from io import BytesIO
-            
-            img = Image.open(BytesIO(img_data))
+
+            img = Image.open(BytesIO(img_data)).convert("RGB")
+            img = ImageOps.autocontrast(img)
             img_array = np.array(img)
-            
-            result = ocr_engine.ocr(img_array, cls=True)
-            
-            if result and result[0]:
-                lines = []
-                for line in result[0]:
-                    if line and len(line) >= 2:
-                        text = line[1][0]
-                        lines.append(text)
-                return "\n".join(lines)
-            
-            return ""
-        
+
+            result = None
+
+            # 1) PaddleOCR 표준 API (cls 지원/미지원 모두 대응)
+            try:
+                # 일부 버전은 cls 인자를 받음
+                result = ocr_engine.ocr(img_array, cls=True)
+            except TypeError:
+                # 일부 버전은 cls를 안 받음
+                result = ocr_engine.ocr(img_array)
+
+            # 2) 혹시 ocr() 자체가 없거나 내부에서 predict 라우팅 문제면 predict로 폴백 (cls 없이)
+            if result is None and hasattr(ocr_engine, "predict"):
+                result = ocr_engine.predict(img_array)
+
+            # -------- 결과 파싱(버전별 포맷 대응) --------
+            lines: list[str] = []
+
+            # PaddleOCR 일반 포맷: result[0] = [ [box, (text, score)], ... ]
+            if isinstance(result, list) and result:
+                first = result[0] if isinstance(result[0], list) else result
+
+                if isinstance(first, list):
+                    for item in first:
+                        if not item or len(item) < 2:
+                            continue
+                        # item[1] could be (text, score)
+                        meta = item[1]
+                        if isinstance(meta, (list, tuple)) and meta:
+                            text = meta[0]
+                            if isinstance(text, str):
+                                text = text.strip()
+                                # ✅ 한 글자 잡음 제거
+                                if len(text) <= 1:
+                                    continue
+                                lines.append(text)
+
+            # PaddleX predict 포맷이 dict/list로 오는 경우도 대비
+            if not lines and isinstance(result, dict):
+                # 예: {"rec_texts": [...]} 같은 형태
+                rec_texts = result.get("rec_texts") or result.get("texts")
+                if isinstance(rec_texts, list):
+                    for t in rec_texts:
+                        if isinstance(t, str):
+                            t = t.strip()
+                            if len(t) <= 1:
+                                continue
+                            lines.append(t)
+
+            return "\n".join(lines).strip()
+
         except Exception as e:
             print(f"      ⚠️  OCR 실패: {e}")
             return ""
+
     
     def extract_with_markers(
         self, 
@@ -265,11 +300,11 @@ class ImageDescriptionGenerator:
                         print(" 재시도")
                         continue
                     else:
-                        return f"이미지 설명 생성 실패: API rate limit exceeded", 0, 0.0
+                        return "이미지 설명 생성 실패: API rate limit exceeded"
                 else:
-                    return f"이미지 설명 생성 실패: {error_msg}", 0, 0.0
+                    return f"이미지 설명 생성 실패: {error_msg}"
         
-        return "이미지 설명 생성 실패: Failed after all retries", 0, 0.0
+        return "이미지 설명 생성 실패: Failed after all retries"
     
     def _get_mime_type(self, image_bytes: bytes) -> str:
         """이미지 바이너리에서 MIME 타입 감지"""
@@ -296,6 +331,144 @@ class MetadataGenerator:
         self.text_extractor = TextExtractor()
         self.image_filter = ImprovedHybridFilterPipeline(auto_extract_keywords=True)
         self.image_describer = ImageDescriptionGenerator()
+
+        # 이미지 캡션 캐시 (메모리)
+        self._caption_cache: Dict[str, str] = {}
+
+    # ----------------------------
+    # 이미지 캡션 최적화 유틸
+    # ----------------------------
+    def _cache_key(self, image_bytes: bytes) -> str:
+        """이미지 바이트 기반의 안정적 캐시 키(SHA256)."""
+        return hashlib.sha256(image_bytes).hexdigest()
+
+    def _load_caption_cache(self, cache_path: Path) -> None:
+        """디스크 캐시 로드(선택)."""
+        try:
+            if cache_path.exists():
+                with open(cache_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    # value는 str만
+                    self._caption_cache.update({k: str(v) for k, v in data.items()})
+        except Exception as e:
+            print(f"   ⚠️  캡션 캐시 로드 실패(무시): {e}")
+
+    def _save_caption_cache(self, cache_path: Path) -> None:
+        """디스크 캐시 저장(선택)."""
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(cache_path, "w", encoding="utf-8") as f:
+                json.dump(self._caption_cache, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"   ⚠️  캡션 캐시 저장 실패(무시): {e}")
+
+    def _score_image(self, img_meta: ImageMetadata, keywords: List[str]) -> float:
+        """캡션 생성 우선순위 점수(높을수록 우선)."""
+        area = float(getattr(img_meta, "area_percentage", 0.0) or 0.0)
+        adj = getattr(img_meta, "adjacent_text", "") or ""
+        adj_len = min(len(adj.strip()), 800)
+
+        # rule 단계 통과는 신뢰도가 높으므로 가산
+        reason = getattr(img_meta, "filter_reason", "") or ""
+        stage_bonus = 12.0 if "Rule" in reason or "INCLUDE" in reason else 0.0
+
+        # 주변 텍스트가 많을수록(설명할 소재가 많을수록) 가산
+        text_bonus = (adj_len / 800.0) * 10.0
+
+        # 키워드가 실제로 주변 텍스트에 등장하면 약간 가산
+        kw_bonus = 0.0
+        if keywords and adj:
+            hits = 0
+            lower = adj.lower()
+            for kw in keywords[:8]:
+                if kw and kw.lower() in lower:
+                    hits += 1
+            kw_bonus = min(hits * 2.0, 8.0)
+
+        # 면적 기반이 기본(0~100)
+        return area + stage_bonus + text_bonus + kw_bonus
+
+    def _get_image_policy(
+        self,
+        total_images: int,
+        filtered_images: int,
+        total_pages: int,
+    ) -> Dict[str, Any]:
+        """UI 변경 없이 자동 FAST 전환을 위한 정책."""
+        auto_fast = (total_images >= 500) or (filtered_images >= 30)
+
+        # 페이지당 제한 (PPT→PDF에서 폭발 방지)
+        per_page_limit = 1 if auto_fast else 2
+
+        # 최종 캡션 생성 상한 (full에서도 안전장치로 상한 유지)
+        # - 페이지 수가 매우 많으면 약간 늘리되, 무제한은 금지
+        base_max = 18 if auto_fast else 30
+        if total_pages >= 120:
+            base_max += 4
+        max_caption_images = min(base_max, 40)
+
+        return {
+            "auto_fast": auto_fast,
+            "per_page_limit": per_page_limit,
+            "max_caption_images": max_caption_images,
+        }
+
+    def _select_images_for_caption(
+        self,
+        images: List[ImageMetadata],
+        keywords: List[str],
+        per_page_limit: int,
+        max_caption_images: int,
+    ) -> List[ImageMetadata]:
+        """페이지 분산 + 스코어링 기반으로 캡션 생성 대상을 선별."""
+        if not images:
+            return []
+
+        # 1) 페이지별로 스코어 계산 후 상위 per_page_limit만 남김
+        by_page: Dict[int, List[ImageMetadata]] = {}
+        for img in images:
+            page = int(getattr(img, "slide_number", 0) or 0)
+            by_page.setdefault(page, []).append(img)
+
+        pruned: List[ImageMetadata] = []
+        for page, imgs in by_page.items():
+            imgs_sorted = sorted(imgs, key=lambda x: self._score_image(x, keywords), reverse=True)
+            pruned.extend(imgs_sorted[:per_page_limit])
+
+        if len(pruned) <= max_caption_images:
+            # 이미 충분히 작으면 그대로 (단, 점수순 정렬)
+            return sorted(pruned, key=lambda x: self._score_image(x, keywords), reverse=True)
+
+        # 2) 페이지 분산을 위해 라운드로빈으로 상위 선택
+        page_queues: Dict[int, List[ImageMetadata]] = {}
+        for img in pruned:
+            page = int(getattr(img, "slide_number", 0) or 0)
+            page_queues.setdefault(page, []).append(img)
+
+        for page in list(page_queues.keys()):
+            page_queues[page] = sorted(page_queues[page], key=lambda x: self._score_image(x, keywords), reverse=True)
+
+        selected: List[ImageMetadata] = []
+        page_selected_count: Dict[int, int] = {p: 0 for p in page_queues}
+
+        while len(selected) < max_caption_images and any(page_queues.values()):
+            # 아직 선택이 적은 페이지를 우선
+            pages = sorted(page_queues.keys(), key=lambda p: page_selected_count.get(p, 0))
+            picked_any = False
+            for p in pages:
+                q = page_queues.get(p) or []
+                if q:
+                    selected.append(q.pop(0))
+                    page_selected_count[p] = page_selected_count.get(p, 0) + 1
+                    picked_any = True
+                    if len(selected) >= max_caption_images:
+                        break
+            if not picked_any:
+                break
+
+        # 최종은 점수순으로 재정렬하지 않음(분산 유지)
+        return selected
     
     def _extract_page_title(self, slide_title: str, adjacent_text: str) -> str:
         """의미있는 페이지 제목 추출"""
@@ -328,6 +501,11 @@ class MetadataGenerator:
                 print(f"  {i}. {supp}")
         print(f"{'='*120}\n")
         
+        # (선택) 이미지 캡션 캐시를 디스크에 유지하여 데모 반복 시연 성능을 확보
+        output_path_obj = Path(output_path)
+        caption_cache_path = output_path_obj.parent / "image_caption_cache.json"
+        self._load_caption_cache(caption_cache_path)
+
         with tempfile.TemporaryDirectory() as temp_dir:
             self.converter = DocumentConverterNode(output_dir=temp_dir)
             
@@ -361,6 +539,9 @@ class MetadataGenerator:
             
             with open(output_path, 'w', encoding='utf-8') as f:
                 json.dump(metadata, f, ensure_ascii=False, indent=2)
+
+            # 캐시 저장 (실패해도 전체 결과에는 영향 없음)
+            self._save_caption_cache(caption_cache_path)
             
             print(f"\n{'='*120}")
             print(f"✅ 메타데이터 생성 완료!")
@@ -468,19 +649,54 @@ class MetadataGenerator:
                         filtered_images.append(img_meta)
             
             print(f"   ✅ 필터링 완료: {len(filtered_images)}개 선택")
+
+        # ✅ 이미지가 많은 자료(특히 PPT→PDF)에서 시간 폭발 방지용 자동 FAST 정책
+        policy = self._get_image_policy(
+            total_images=len(all_images),
+            filtered_images=len(filtered_images),
+            total_pages=int(text_data.get('total_pages', 0) or 0),
+        )
+        if filtered_images:
+            mode_label = "FAST" if policy["auto_fast"] else "FULL"
+            print(
+                f"   ⚙️  이미지 캡션 정책: {mode_label} / "
+                f"page_limit={policy['per_page_limit']} / "
+                f"max_captions={policy['max_caption_images']}"
+            )
         
         # 5. 이미지 설명 생성
         filtered_image_metadata = []
         
         if filtered_images:
-            print(f"   📝 이미지 설명 생성 중... (0/{len(filtered_images)})", end='', flush=True)
-            
-            for i, img_meta in enumerate(filtered_images, 1):
-                description = self.image_describer.generate_description(
-                    img_meta.image_bytes,
-                    img_meta.adjacent_text,
-                    keywords
+            # 5-1) 캡션 생성 대상 선별(상한 + 페이지당 제한 + 스코어링)
+            caption_targets = self._select_images_for_caption(
+                images=filtered_images,
+                keywords=keywords,
+                per_page_limit=policy["per_page_limit"],
+                max_caption_images=policy["max_caption_images"],
+            )
+
+            if len(caption_targets) < len(filtered_images):
+                print(
+                    f"   🧹 캡션 대상 축소: {len(filtered_images)} → {len(caption_targets)} "
+                    f"(상한/페이지 제한 적용)"
                 )
+
+            print(f"   📝 이미지 설명 생성 중... (0/{len(caption_targets)})", end='', flush=True)
+
+            for i, img_meta in enumerate(caption_targets, 1):
+                # 5-2) 이미지 설명 캐시 재사용
+                key = self._cache_key(img_meta.image_bytes)
+                if key in self._caption_cache:
+                    description = self._caption_cache[key]
+                else:
+                    description = self.image_describer.generate_description(
+                        img_meta.image_bytes,
+                        img_meta.adjacent_text,
+                        keywords
+                    )
+                    # 항상 str만 저장
+                    self._caption_cache[key] = str(description)
                 
                 page_title = self._extract_page_title(
                     img_meta.slide_title,
@@ -496,14 +712,14 @@ class MetadataGenerator:
                     "area_percentage": img_meta.area_percentage
                 })
                 
-                print(f"\r   📝 이미지 설명 생성 중... ({i}/{len(filtered_images)})", end='', flush=True)
+                print(f"\r   📝 이미지 설명 생성 중... ({i}/{len(caption_targets)})", end='', flush=True)
             
             print()  # 줄바꿈
             
             # ✅ 최종 집계 출력
             print(f"\n   {'='*80}")
             print(f"   📊 이미지 설명 생성 완료")
-            print(f"      - 처리된 이미지: {len(filtered_images)}개")
+            print(f"      - 처리된 이미지: {len(caption_targets)}개")
             print(f"   {'='*80}\n")
 
         # 6. 통계

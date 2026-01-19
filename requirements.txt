@@ -9,9 +9,9 @@ python-multipart==0.0.20
 # LangGraph / LangChain (이미 최신)
 # -----------------------------
 langgraph==1.0.4
-langchain==1.1.0
+# langchain==1.1.0
 langchain-core==1.1.0
-langchain-openai==1.0.3
+# langchain-openai==1.0.3
 
 # -----------------------------
 # Google GenAI / Gemini

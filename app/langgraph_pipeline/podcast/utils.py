@@ -5,8 +5,6 @@ import base64
 import struct
 from typing import List, Tuple
 
-# [삭제됨] generate_korean_names 함수 및 random 임포트 제거
-
 def sanitize_tts_text(
     text: str,
     host_name: str = "",
@@ -124,3 +122,35 @@ def pcm_to_wav(
     wav_header += struct.pack('<I', subchunk2_size)
     
     return wav_header + pcm_data
+
+# 스크립트 글자 길이 계산용
+def estimate_korean_chars_for_budget(text: str) -> int:
+    """
+    길이 예산 계산용 글자수 추정.
+    - 타임스탬프 제거
+    - [선생님]/[학생] 화자 태그 제거
+    - 공백/개행 제거 후 길이 측정
+    """
+    text = re.sub(r"\[\d{2}:\d{2}:\d{2}\]\s*", "", text)
+    text = re.sub(r"^\[(선생님|학생)\]\s*:?\s*", "", text, flags=re.MULTILINE)
+    text = re.sub(r"\s+", "", text)
+    return len(text)
+
+# ✅ 프로젝트 기준 분당 글자수 (실제 TTS 시간 기반으로 재조정)
+def target_char_budget(duration_min: float, style: str) -> int:
+    """
+    style별 분당 글자수 기반으로 budget 계산 (duration_min은 float 허용)
+    - lecture: 380자/분
+    - explain: 400자/분
+    """
+    if style == "lecture":
+        chars_per_min = 380
+    else:
+        chars_per_min = 400
+
+    # ✅ float duration 반영 + int로 반올림
+    budget = int(round(duration_min * chars_per_min))
+
+    # ✅ 극단값 방어 (30초~20분 같은 입력 대응)
+    budget = max(250, min(budget, 20000))
+    return budget
