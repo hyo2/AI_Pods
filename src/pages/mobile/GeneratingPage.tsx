@@ -27,28 +27,28 @@ const GeneratingPage = () => {
       label: "자료 분석 중...",
       icon: <FileText className="w-5 h-5" />,
       status: "pending",
-      backendSteps: ["start", "extract_complete", "combine_complete"], // 🔥 3개 묶음
+      backendSteps: ["start", "extract_complete"], // 🔥 3개 묶음
     },
     {
       id: "script",
       label: "스크립트 생성 중...",
       icon: <Sparkles className="w-5 h-5" />,
       status: "pending",
-      backendSteps: ["script_complete"],
+      backendSteps: ["combine_complete"],
     },
     {
       id: "audio",
       label: "음성 합성 중...",
       icon: <Mic className="w-5 h-5" />,
       status: "pending",
-      backendSteps: ["audio_complete"],
+      backendSteps: ["script_complete"],
     },
     {
       id: "final",
       label: "최종 파일 생성 중...",
       icon: <Music className="w-5 h-5" />,
       status: "pending",
-      backendSteps: ["merge_complete"],
+      backendSteps: ["audio_complete", "merge_complete"],
     },
   ]);
 

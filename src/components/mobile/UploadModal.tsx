@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { Upload, X, Link as LinkIcon } from "lucide-react";
 import { API_BASE_URL } from "../../lib/api";
+import { supabase } from "../../lib/supabaseClient";
 import type { SourceItem } from "./ProjectFilesModal";
 
 interface UploadModalProps {
@@ -67,34 +68,125 @@ const UploadModal = ({
   const uploadFiles = async (files: File[]) => {
     setIsUploading(true);
 
-    const formData = new FormData();
-    formData.append("user_id", userId);
-    formData.append("project_id", String(projectId));
-    files.forEach((file) => formData.append("files", file));
+    // 전체 업로드 플로우 시간
+    const totalLabel = `[upload-total] files=${files.length}`;
+    console.time(totalLabel);
 
     try {
-      const uploadRes = await fetch(`${API_BASE_URL}/inputs/upload`, {
+      const uploadedFileMetas: Array<{
+        title: string;
+        storage_path: string;
+        file_type?: string;
+        file_size?: number;
+      }> = [];
+
+      for (const file of files) {
+        const fileLabel = `[upload-file] ${file.name} (${(
+          file.size /
+          (1024 * 1024)
+        ).toFixed(2)}MB)`;
+        console.time(fileLabel);
+
+        // 1) signed upload 발급 시간
+        const issueLabel = `[issue-token] ${file.name}`;
+        console.time(issueLabel);
+
+        const issueRes = await fetch(
+          `${API_BASE_URL}/inputs/create-upload-url`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              user_id: userId,
+              project_id: projectId,
+              filename: file.name,
+              content_type: file.type,
+            }),
+          }
+        );
+
+        console.timeEnd(issueLabel);
+
+        if (!issueRes.ok) {
+          const errText = await issueRes.text().catch(() => "");
+          console.error("create-upload-url failed:", issueRes.status, errText);
+          throw new Error("업로드 URL 발급 실패");
+        }
+
+        const issued = await issueRes.json();
+        const bucket = issued.bucket;
+        const path = issued.path;
+        const token = issued.token;
+
+        // 디버그(토큰 길이/경로 확인)
+        console.log("[issued]", { bucket, path, tokenLen: token?.length });
+
+        // 2) 실제 업로드 시간
+        const storageLabel = `[storage-upload] ${file.name}`;
+        console.time(storageLabel);
+
+        const { error } = await supabase.storage
+          .from(bucket)
+          .uploadToSignedUrl(path, token, file, { contentType: file.type });
+
+        console.timeEnd(storageLabel);
+
+        if (error) {
+          console.error("uploadToSignedUrl error:", error);
+          throw error;
+        }
+
+        uploadedFileMetas.push({
+          title: file.name,
+          storage_path: path,
+          file_type: file.type,
+          file_size: file.size,
+        });
+
+        console.timeEnd(fileLabel);
+      }
+
+      // 3) register 시간
+      const registerLabel = `[register] files=${uploadedFileMetas.length}`;
+      console.time(registerLabel);
+
+      const registerRes = await fetch(`${API_BASE_URL}/inputs/register`, {
         method: "POST",
-        body: formData,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: userId,
+          project_id: projectId,
+          links: [],
+          files: uploadedFileMetas,
+        }),
       });
 
-      if (!uploadRes.ok) throw new Error("업로드 실패");
+      console.timeEnd(registerLabel);
 
-      const uploadData = await uploadRes.json();
+      if (!registerRes.ok) {
+        const errText = await registerRes.text().catch(() => "");
+        console.error("register failed:", registerRes.status, errText);
+        throw new Error("메타 등록 실패");
+      }
 
-      const items: SourceItem[] = uploadData.inputs.map((input: any) => ({
-        id: input.id,
-        name: input.title,
-        type: getFileTypeFromName(input.title),
-        size: input.file_size,
-      }));
+      const registerData = await registerRes.json();
+
+      const items: SourceItem[] = (registerData.inputs ?? []).map(
+        (input: any) => ({
+          id: input.id,
+          name: input.title,
+          type: getFileTypeFromName(input.title),
+          size: input.file_size,
+        })
+      );
 
       onUploadComplete(items);
-      onClose(); // ✅ 자동 닫기
+      onClose();
     } catch (error) {
       console.error("파일 업로드 실패:", error);
       alert("파일 업로드에 실패했습니다.");
     } finally {
+      console.timeEnd(totalLabel);
       setIsUploading(false);
     }
   };
@@ -107,30 +199,33 @@ const UploadModal = ({
 
     setIsUploading(true);
 
-    const formData = new FormData();
-    formData.append("user_id", userId);
-    formData.append("project_id", String(projectId));
-    formData.append("links", JSON.stringify([urlInput]));
-
     try {
-      const uploadRes = await fetch(`${API_BASE_URL}/inputs/upload`, {
+      const registerRes = await fetch(`${API_BASE_URL}/inputs/register`, {
         method: "POST",
-        body: formData,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: userId,
+          project_id: projectId,
+          links: [urlInput.trim()],
+          files: [],
+        }),
       });
 
-      if (!uploadRes.ok) throw new Error("URL 추가 실패");
+      if (!registerRes.ok) throw new Error("URL 추가 실패");
 
-      const uploadData = await uploadRes.json();
+      const registerData = await registerRes.json();
 
-      const items: SourceItem[] = uploadData.inputs.map((input: any) => ({
-        id: input.id,
-        name: input.title,
-        type: getFileTypeFromName(input.title),
-        url: input.link_url,
-      }));
+      const items: SourceItem[] = (registerData.inputs ?? []).map(
+        (input: any) => ({
+          id: input.id,
+          name: input.title,
+          type: getFileTypeFromName(input.title),
+          url: input.link_url,
+        })
+      );
 
       onUploadComplete(items);
-      onClose(); // ✅ 자동 닫기
+      onClose();
     } catch (error) {
       console.error("URL 추가 실패:", error);
       alert("URL 추가에 실패했습니다.");

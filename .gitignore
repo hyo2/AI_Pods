@@ -25,5 +25,6 @@ dist-ssr
 
 # Secret files and Service Accounts
 .env
+.env.production
 vertex-ai-service-account.json
 
