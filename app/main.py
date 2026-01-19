@@ -3,6 +3,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
 
+from app.utils.vertex_env_patch import patch_vertex_ai_env
+patch_vertex_ai_env()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -14,9 +17,6 @@ import logging
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 from app.routers import auth, input, output, project, storage, voice
-from app.utils.vertex_env_patch import patch_vertex_ai_env
-
-patch_vertex_ai_env()
 
 app = FastAPI(
     title="AI Pods API",

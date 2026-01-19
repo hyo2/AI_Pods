@@ -9,24 +9,21 @@ Improved Hybrid Filter V2 (get_images() 방식)
 """
 
 import os
-import vertexai
 import textwrap
 import json
 import logging
 from dataclasses import dataclass
 from typing import List, Dict
 from pptx import Presentation
-from vertexai.generative_models import GenerativeModel, Part
+from vertexai.generative_models import Part
 
-logger = logging.getLogger(__name__)
-
-import os
-import logging
 logger = logging.getLogger(__name__)
 
 def _resolve_vertex_sa_file() -> str | None:
     # 프로젝트에서 쓰는 키 우선순위
-    for key in ("VERTEX_AI_SERVICE_ACCOUNT_FILE", "VERTEX_AI_SERVICE_ACCOUNT_JSON", "GOOGLE_APPLICATION_CREDENTIALS"):
+    # NOTE: VERTEX_AI_SERVICE_ACCOUNT_JSON(=JSON 문자열)은 main.py의 patch_vertex_ai_env()에서
+    # 파일로 변환 후 GOOGLE_APPLICATION_CREDENTIALS로 연결되므로 여기서는 "경로"만 확인한다.
+    for key in ("VERTEX_AI_SERVICE_ACCOUNT_FILE", "GOOGLE_APPLICATION_CREDENTIALS"):
         p = os.getenv(key)
         if p and os.path.exists(p):
             return p
@@ -62,6 +59,14 @@ def get_vertex_text_model():
     except Exception as e:
         logger.exception(f"Vertex/Gemini 초기화 실패: {e}")
         return None
+    
+model = None
+
+def get_global_model():
+    global model
+    if model is None:
+        model = get_vertex_text_model()
+    return model
 
 @dataclass
 class ImageMetadata:
@@ -359,7 +364,7 @@ class UniversalImageExtractor:
 class ImprovedHybridFilterPipeline:
     def __init__(self, auto_extract_keywords: bool = True):
         self.auto_extract = auto_extract_keywords
-        self.model = get_vertex_text_model()
+        self.model = get_global_model()
         
         self.UNIVERSAL_PATTERNS = [
             '학습', '활동', '문제', '예제', '연습',
@@ -675,6 +680,3 @@ if __name__ == "__main__":
         print("  - 만화 콘텐츠 정상 인식")
         print("  - 배경 이미지 자동 제외")
         print("="*120 + "\n")
-
-# ✅ 하위 호환용 전역 model 제공 (기존 metadata_generator_node import 깨짐 방지)
-model = get_vertex_text_model()
