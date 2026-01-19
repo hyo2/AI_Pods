@@ -54,7 +54,7 @@ from .improved_hybrid_filter import (
     ImprovedHybridFilterPipeline,
     UniversalImageExtractor,
     ImageMetadata,
-    model
+    get_global_model
 )
 
 from vertexai.generative_models import Part
@@ -285,6 +285,10 @@ class ImageDescriptionGenerator:
 
 출력: 명확하고 간결한 2-4문장만.
 """
+                model = get_global_model()
+                if model is None:
+                    return "이미지 설명 생성 실패: Gemini unavailable (no credentials)"
+
                 response = model.generate_content([image_part, prompt])
                 description = response.text.strip()
                 return description
