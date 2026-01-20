@@ -58,6 +58,14 @@ def delete_output_internal(output_id: int):
     except Exception as e:
         print("[delete_output_internal Error]", e)
 
+def strip_nul(obj):
+    if isinstance(obj, str):
+        return obj.replace("\x00", "")
+    if isinstance(obj, list):
+        return [strip_nul(x) for x in obj]
+    if isinstance(obj, dict):
+        return {k: strip_nul(v) for k, v in obj.items()}
+    return obj
 
 async def process_langgraph_output(
     project_id,
@@ -247,15 +255,19 @@ async def process_langgraph_output(
         # 사용자 input 데이터에 대한 metadata
         source_data = result["source_data"]
 
-        supabase.table("output_contents").update({
+        payload = {
             "title": title_text,
             "status": "completed",
             "audio_path": audio_url,
             "script_path": script_url,
             "script_text": transcript_text,
             "current_step": "completed",
-            "metadata" : source_data
-        }).eq("id", output_id).execute()
+            "metadata": source_data
+        }
+
+        payload = strip_nul(payload)
+
+        supabase.table("output_contents").update(payload).eq("id", output_id).execute()
 
         project_row = supabase.table("projects").select("title").eq("id", project_id).single().execute()
 
@@ -284,12 +296,16 @@ async def process_langgraph_output(
         
         if output_exists(output_id):
             try:
-                supabase.table("output_contents").update({
+                error_payload = {
                     "status": "failed",
                     "error_message": error_msg[:500],
                     "expires_at": (datetime.utcnow() + timedelta(days=7)).isoformat(),
                     "current_step": "error"
-                }).eq("id", output_id).execute()
+                }
+
+                error_payload = strip_nul(error_payload)
+
+                supabase.table("output_contents").update(error_payload).eq("id", output_id).execute()
 
             except Exception as update_err:
                 print(f"상태 업데이트 실패: {update_err}")

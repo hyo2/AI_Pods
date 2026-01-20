@@ -17,7 +17,7 @@ def _split_tag(line: str) -> tuple[str, str]:
     """
     '[선생님]:' 또는 '[학생]:' 태그 분리
     """
-    m = re.match(r"^(\[(?:선생님|학생)\]:)\s*(.*)$", line.strip())
+    m = re.match(r"^(\[(?:선생님|학생|선생님2)\]:)\s*(.*)$", line.strip())
     if not m:
         return "", line.strip()
     return m.group(1), (m.group(2) or "").strip()
@@ -95,6 +95,8 @@ def _sanitize_trailing_lines(lines: list[str], is_dialogue: bool) -> list[str]:
             last = last.replace("[선생님]", "[선생님]:", 1)
         if last.startswith("[학생]") and "[학생]:" not in last:
             last = last.replace("[학생]", "[학생]:", 1)
+        if last.startswith("[선생님2]") and "[선생님2]:" not in last:
+            last = last.replace("[선생님2]", "[선생님2]:", 1)
 
         # 마지막이 선생님 발화인 경우에만 처리(문제의 대부분이 여기서 발생)
         if last.startswith("[선생님]:"):
@@ -129,15 +131,15 @@ def _sanitize_trailing_lines(lines: list[str], is_dialogue: bool) -> list[str]:
     return out
 
 
-def get_default_closing(is_dialogue: bool, last_speaker: str = None) -> str:
+def get_default_closing(is_dialogue: bool, last_speaker: str = None, speaker_b_label: str = "학생") -> str:
     if is_dialogue:
-        if last_speaker == "student":
+        if last_speaker == "student" and speaker_b_label == "학생":
             return (
                 "[선생님]: 네, 오늘 배운 핵심 내용들을 잘 복습하시면 큰 도움이 될 거예요. "
                 "궁금한 점이 있으면 언제든 질문해 주시고, 다음 시간에 또 뵙겠습니다. 수고하셨습니다!"
             )
         return (
-            "[학생]: 오늘 정말 많은 것을 배웠습니다. 선생님 감사합니다!\n"
+            f"[{speaker_b_label}]: 오늘 정말 많은 것을 배웠습니다. 감사합니다!\n"
             "[선생님]: 네, 잘 이해하셨네요. 오늘 배운 내용을 실습해보시면서 더 깊이 있게 공부해 보시기 바랍니다. "
             "다음 시간에 또 뵙겠습니다. 수고하셨습니다!"
         )
@@ -153,6 +155,7 @@ def hard_cap_fallback(
     model,
     style: str,
     extract_text_fn,
+    speaker_b_label: str = "학생",
 ) -> str:
     is_dialogue = (style != "lecture")
     # 10분/15분에서 0.75는 너무 공격적이라 컷 비율을 상향
@@ -178,13 +181,13 @@ def hard_cap_fallback(
         test_text = (accumulated + "\n" + line).strip()
         current_len = estimate_korean_chars_for_budget(test_text)
 
-        if re.match(r"^\[선생님\]", line):
+        if re.match(r"^\[선생님\]", line) or re.match(r"^\[선생님2\]", line):
             teacher_count += 1
         elif re.match(r"^\[학생\]", line):
             student_count += 1
 
         if current_len > target_cut:
-            if re.match(r"^\[(선생님|학생)\]", line):
+            if re.match(r"^\[(선생님|선생님2|학생)\]", line):
                 break
             remaining_budget = target_cut - estimate_korean_chars_for_budget(accumulated)
             if remaining_budget > 50:
@@ -210,7 +213,7 @@ def hard_cap_fallback(
     last_speaker = None
     if is_dialogue:
         for line in reversed(cut_lines):
-            if re.match(r"^\[선생님\]", line):
+            if re.match(r"^\[선생님\]", line) or re.match(r"^\[선생님2\]", line):
                 last_speaker = "teacher"
                 break
             if re.match(r"^\[학생\]", line):
@@ -218,15 +221,18 @@ def hard_cap_fallback(
                 break
         logger.info(f"[하드캡] {truncated_len}자 / 선생님:{teacher_count} / 학생:{student_count} / 마지막:{last_speaker}")
 
-    # ✅ 마지막 학생 발화(질문 가능성) 추출: 물음표 없어도 잡아서 클로징에서 답변 유도
-    last_student_q = None
+    # ✅ 마지막 발화(질문 가능성) 추출: 물음표 없어도 잡아서 클로징에서 답변 유도
+    last_b_q = None
     if is_dialogue:
         for line in reversed(cut_lines):
-            if line.startswith("[학생]"):
+            if line.startswith(f"[{speaker_b_label}]"):
                 # 너무 짧은 맞장구는 제외
-                _, body = _split_tag(line.replace("[학생]", "[학생]:") if "[학생]:" not in line else line)
+                normalized = line
+                if f"[{speaker_b_label}]:" not in normalized and normalized.startswith(f"[{speaker_b_label}]"):
+                    normalized = normalized.replace(f"[{speaker_b_label}]", f"[{speaker_b_label}]:", 1)
+                _, body = _split_tag(normalized)
                 if len(body) >= 8:
-                    last_student_q = line.strip()
+                    last_b_q = line.strip()
                     break
 
     remaining_budget = max(0, budget - truncated_len)
@@ -236,9 +242,9 @@ def hard_cap_fallback(
     다음은 대화형 팟캐스트의 일부입니다. 이 대화를 자연스럽고 완결되게 마무리하세요.
 
     **CRITICAL - 화자 태그 규칙 (매우 중요):**
-    - 반드시 각 줄 시작에 [선생님]: 또는 [학생]: 태그 사용
+    - 반드시 각 줄 시작에 [선생님]: 또는 [{speaker_b_label}]: 태그 사용
     - "진행자", "청취자", "호스트", "게스트" 같은 표현 절대 금지
-    - 태그 형식: [선생님]: ... 또는 [학생]: ...
+    - 태그 형식: [선생님]: ... 또는 [{speaker_b_label}]: ...
     - 다른 형식 사용 시 오류 발생
 
     **내용 규칙:**
@@ -250,7 +256,7 @@ def hard_cap_fallback(
     - 마지막은 반드시 [선생님]이 격려+인사로 끝내기
 
     **올바른 예시:**
-    [학생]: 오늘 정말 유익했습니다!
+    [{speaker_b_label}]: 오늘 정말 유익했습니다!
     [선생님]: 네, 잘 이해하셨네요. 다음 시간에 뵙겠습니다!
 
     **잘못된 예시 (절대 금지):**
@@ -259,11 +265,11 @@ def hard_cap_fallback(
     """.strip()
 
         
-        if last_student_q:
+        if last_b_q:
             closing_prompt += f"""
 
-    **마지막 학생 질문(반드시 먼저 답변할 것):**
-    {last_student_q}
+    **마지막 질문(반드시 먼저 답변할 것):**
+    {last_b_q}
     """.strip()
 
         closing_prompt += f"""
@@ -271,7 +277,7 @@ def hard_cap_fallback(
     [참고: 마지막 부분]
     {truncated[-800:]}
 
-    [마무리 생성 - 반드시 [선생님]: 또는 [학생]: 태그 사용]
+    [마무리 생성 - 반드시 [선생님]: 또는 [{speaker_b_label}]: 태그 사용]
     """.strip()
 
     else:
@@ -295,7 +301,7 @@ def hard_cap_fallback(
         closing = clean_script(extract_text_fn(resp))
 
         if estimate_korean_chars_for_budget(closing) < 80:
-            closing = get_default_closing(is_dialogue, last_speaker if is_dialogue else None)
+            closing = get_default_closing(is_dialogue, last_speaker if is_dialogue else None, speaker_b_label=speaker_b_label)
 
         # 대화형이면 선생님으로 끝나는지 보정
         if is_dialogue and not re.search(r"\[선생님\][^\[]*$", closing, re.DOTALL):
@@ -305,7 +311,7 @@ def hard_cap_fallback(
 
     except Exception as e:
         logger.error(f"[하드캡] 마무리 생성 오류: {e}")
-        return (truncated + "\n" + get_default_closing(is_dialogue, last_speaker if is_dialogue else None)).strip()
+        return (truncated + "\n" + get_default_closing(is_dialogue, last_speaker if is_dialogue else None, speaker_b_label=speaker_b_label)).strip()
 
 def continue_script_fallback(
     script_text: str,
@@ -313,6 +319,7 @@ def continue_script_fallback(
     model,
     style: str,
     extract_text_fn,
+    speaker_b_label: str = "학생",
 ) -> str:
     is_dialogue = (style != "lecture")
     current_len = estimate_korean_chars_for_budget(script_text)
@@ -323,8 +330,7 @@ def continue_script_fallback(
         lines = [ln.strip() for ln in script_text.splitlines() if ln.strip()]
         lines = _sanitize_trailing_lines(lines, is_dialogue=is_dialogue)
         base = "\n".join(lines).strip()
-        return (base + "\n" + get_default_closing(is_dialogue)).strip()
-
+        return (base + "\n" + get_default_closing(is_dialogue, speaker_b_label=speaker_b_label)).strip()
     if is_dialogue:
         prompt = f"""
 다음은 대화형 팟캐스트 스크립트입니다. 
@@ -336,9 +342,9 @@ def continue_script_fallback(
 
 **이어쓰기 규칙 (마무리가 없는 경우에만):**
 - 대화 형식 유지
-- 화자 태그는 줄 시작에만: [선생님]: / [학생]:
+- 화자 태그는 줄 시작에만: [선생님]: / [{speaker_b_label}]:
 - 문장 중간에 [학생]님 금지
-- 선생님:학생 비율 7:3 근사
+- teacher-student일 때만 선생님:학생 비율 7:3 근사 (teacher-teacher면 적용하지 않음)
 - 추가 분량은 약 {remaining_budget}자 이내 (±20%)
 - **마무리 인사를 중복하지 마세요**
 
@@ -382,13 +388,13 @@ def continue_script_fallback(
             return "\n".join(lines).strip()
 
         if estimate_korean_chars_for_budget(cont) < 120:
-            cont = get_default_closing(is_dialogue)
+            cont = get_default_closing(is_dialogue, speaker_b_label=speaker_b_label)
 
         return (script_text.rstrip() + "\n" + cont.lstrip()).strip()
 
     except Exception as e:
         logger.error(f"[이어쓰기 폴백] 오류: {e}")
-        return (script_text + "\n" + get_default_closing(is_dialogue)).strip()
+        return (script_text + "\n" + get_default_closing(is_dialogue, speaker_b_label=speaker_b_label)).strip()
 
 def expand_script_fallback(
     *,
@@ -399,6 +405,7 @@ def expand_script_fallback(
     style: str,
     extract_text_fn,
     max_add_chars: int = 2200,
+    speaker_b_label: str = "학생",
 ) -> str:
     """
     부족한 분량을 '한 번에' 확장하는 보강 루틴.
@@ -431,8 +438,8 @@ def expand_script_fallback(
    - 비유나 실생활 적용 사례
 
 **규칙**:
-- 대화 형식 유지: [선생님]/[학생]
-- 선생님:학생 비율 7:3 유지
+- 대화 형식 유지: [선생님]/[{speaker_b_label}]
+- teacher-student일 때만 선생님:학생 비율 7:3 (teacher-teacher면 적용하지 않음)
 - 논리적 흐름 유지
 - **기존 마무리는 그대로 유지** (마무리를 다시 작성하지 마세요)
 
@@ -498,6 +505,7 @@ def expand_middle_content(
     model,
     style: str,
     extract_text_fn,
+    speaker_b_label: str = "학생",
 ) -> str:
     """
     마무리는 유지하고 중간 본론 부분만 확장
@@ -540,9 +548,9 @@ def expand_middle_content(
    - 학생의 심화 질문과 선생님의 답변
 
 **규칙**:
-- 대화 형식 유지: [선생님]/[학생]
+- 대화 형식 유지: [선생님]/[{speaker_b_label}]
 - 논리적 흐름 유지
-- 선생님:학생 비율 7:3
+- teacher-student일 때만 선생님:학생 비율 7:3 (teacher-teacher면 적용하지 않음)
 
 [확장할 본론 부분]
 {intro_and_main}

@@ -20,6 +20,37 @@ def extract_json_from_llm(text: str) -> dict:
     #    (기존처럼 정규식 {.*}는 텍스트가 섞이면 실패/과매칭 위험이 있어 인덱스로 처리)
     first = cleaned.find("{")
     last = cleaned.rfind("}")
+
+    # ✅ 추가: JSON이 잘린 경우 복구 시도
+    if first != -1 and (last == -1 or last <= first):
+        logger.warning("[JSON 복구 시도] 닫는 괄호 누락 - 강제 추가")
+        truncated = cleaned[first:].rstrip().rstrip(',')
+        json_text = truncated + "\n}"
+        
+        try:
+            recovered = json.loads(json_text)
+            
+            # ✅ 복구 성공 시 검증: script가 너무 짧거나 중간에 끊긴 것 같으면 실패 처리
+            script_content = recovered.get('script', '')
+            
+            # 1) script가 너무 짧음 (200자 미만)
+            if len(script_content) < 200:
+                logger.warning(f"[JSON 복구 실패] script가 너무 짧음: {len(script_content)}자")
+                raise ValueError("Recovered script too short")
+            
+            # 2) 마지막 문장이 비정상적으로 끊김 (한글 단어 중간에서 끊김)
+            last_line = script_content.strip().split('\n')[-1]
+            if last_line and not last_line[-1] in '.!?다요죠':
+                logger.warning(f"[JSON 복구 실패] script 마지막이 비정상: '{last_line[-30:]}'")
+                raise ValueError("Recovered script appears truncated")
+            
+            logger.info("[JSON 복구 성공] 검증 통과")
+            return recovered
+            
+        except Exception as e:
+            logger.warning(f"[JSON 복구 실패] {e}")
+            pass  # 기존 로직으로 fallback
+
     if first == -1 or last == -1 or last <= first:
         # 그래도 없으면 전체를 그대로 json.loads 시도
         try:

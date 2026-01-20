@@ -6,6 +6,19 @@ STYLE_ALIASES = {
     "explain": [r"대화형", r"대화", r"설명형", r"문답", r"explain", r"dialogue"],
 }
 
+DLG_MODE_ALIASES = {
+    "teacher_teacher": [
+        r"선생님\s*끼리", r"교사\s*끼리",
+        r"선생님\s*들", r"교사\s*들",
+        r"선생님\s*들\s*끼리", r"교사\s*들\s*끼리",
+        r"선생님\s*두\s*명", r"교사\s*두\s*명",
+        r"두\s*선생님", r"두\s*교사",
+        r"teacher\s*[- ]?\s*teacher",
+        r"선생님\s*2", r"선생님2",
+    ],
+}
+
+
 DIFF_ALIASES = {
     "basic": [r"초급", r"입문", r"쉽게", r"easy", r"beginner"],
     "intermediate": [r"중급", r"보통", r"intermediate"],
@@ -70,7 +83,7 @@ def _parse_page_numbers(text: str, max_pages: int = 10000) -> List[int]:
 
 def parse_user_prompt_overrides(user_prompt: str) -> Dict[str, Any]:
     if not user_prompt or not user_prompt.strip():
-        return {"duration_min": None, "style": None, "difficulty": None, "ocr_force_pages": []}
+        return {"duration_min": None, "style": None, "difficulty": None, "ocr_force_pages": [], "dialogue_mode": None}
 
     text = user_prompt.strip()
 
@@ -91,11 +104,19 @@ def parse_user_prompt_overrides(user_prompt: str) -> Dict[str, Any]:
     # ✅ 추가: OCR 강제 페이지 파싱
     ocr_force_pages = _parse_page_numbers(text)
 
+    dialogue_mode = None
+    for key, patterns in DLG_MODE_ALIASES.items():
+        if any(re.search(p, text, re.IGNORECASE) for p in patterns):
+            dialogue_mode = key
+            break
+
+
     return {
         "duration_min": duration_min,
         "style": style,
         "difficulty": difficulty,
         "ocr_force_pages": ocr_force_pages,
+        "dialogue_mode": dialogue_mode,
     }
 
 

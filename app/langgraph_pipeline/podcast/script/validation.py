@@ -16,7 +16,7 @@ def is_script_truncated(script_text: str) -> Tuple[bool, str]:
         return True, "no_lines"
 
     last = lines[-1]
-    last_wo_speaker = re.sub(r"^\[(선생님|학생)\]\s*:?\s*", "", last).strip()
+    last_wo_speaker = re.sub(r"^\[(선생님|학생|선생님2)\]\s*:?\s*", "", last).strip()
 
     if len(last_wo_speaker) < 10:
         return True, "last_line_too_short"

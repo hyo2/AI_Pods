@@ -41,6 +41,8 @@ def compress_script_once(
     budget: int,
     is_dialogue: bool,
     round_idx: int = 0,
+    speaker_a_label: str = "선생님",
+    speaker_b_label: str = "학생",
 ) -> str:
     original_len = estimate_korean_chars_for_budget(script_text)
 
@@ -55,8 +57,13 @@ def compress_script_once(
     else:
         style_rules = (
             "- MUST maintain dialogue format (DO NOT convert to summary/prose)\n"
-            "- Speaker tags: Use ONLY '[선생님]' and '[학생]'\n"
-            "- Maintain approximately 7:3 (Teacher:Student) ratio\n"
+            f"- Speaker tags: Use ONLY '[{speaker_a_label}]' and '[{speaker_b_label}]'\n"
+         )
+        if speaker_b_label == "학생":
+            style_rules += "- Maintain approximately 7:3 (Teacher:Student) ratio\n"
+        else:
+            style_rules += "- Two teachers conversation (NO student role)\n"
+        style_rules += (
             "- Last 2 turns MUST be summary + closing\n"
             "- Keep similar number of turns, make each turn SHORTER\n"
         )

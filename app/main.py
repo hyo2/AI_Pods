@@ -14,6 +14,14 @@ from fastapi import HTTPException
 import os
 
 import logging
+
+# ✅ 전역 로깅 레벨 설정 (INFO 이상 모두 출력)
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] [%(levelname)8s] %(filename)s:%(lineno)d - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 from app.routers import auth, input, output, project, storage, voice

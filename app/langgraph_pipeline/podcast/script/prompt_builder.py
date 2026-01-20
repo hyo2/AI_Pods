@@ -12,6 +12,8 @@ def create_prompt(
     budget: int,
     style: str,
     user_prompt_template: str,
+    speaker_a_label: str = "선생님",
+    speaker_b_label: str = "학생",
 ) -> str:
     """budget은 외부에서 받고, style/template도 인자로 받아 순수 함수로 생성"""
 
@@ -50,8 +52,13 @@ def create_prompt(
         turn_guide = {5: "10~14턴", 10: "18~24턴", 15: "28~32턴"}
         recommended_turns = turn_guide.get(duration_int, f"{duration_int*2}~{duration_int*3}턴")
 
+        tag_a = f"[{speaker_a_label}]:"
+        tag_b = f"[{speaker_b_label}]:"
+
         length_guide += f"\n- 권장 대화 턴 수: **{recommended_turns}**"
-        length_guide += "\n- 선생님:학생 비율 약 7:3 유지"
+        # teacher-student일 때만 비율 힌트 제공(teacher-teacher에서는 오히려 세계관을 망가뜨림)
+        if speaker_b_label == "학생":
+            length_guide += "\n- 선생님:학생 비율 약 7:3 유지"
         length_guide += "\n\n**CRITICAL (ENGLISH FOR PRECISION):**"
         length_guide += "\n- This MUST be a dialogue, NOT a summary"
         length_guide += "\n- Keep turn-by-turn conversation structure"
@@ -70,8 +77,8 @@ def create_prompt(
         "- script 필드에는 순수 텍스트만 넣으세요 (JSON 구조 넣지 마세요)\n"
         "- **반드시 유효한 JSON**을 지키세요\n"
         "- script 문자열 안에 실제 줄바꿈(개행)을 넣지 말고, 줄바꿈이 필요하면 **\\\\n** 이스케이프를 사용하세요\n"
-        "- 대화형이면 각 턴을 **\\\\n** 으로 구분하세요 (예: [선생님]: ...\\\\n[학생]: ...)\n"
-        "- **화자 태그는 반드시 줄 시작에만 사용**: [선생님]: ... / [학생]: ...\n"
+        f"- 대화형이면 각 턴을 **\\\\n** 으로 구분하세요 (예: [{speaker_a_label}]: ...\\\\n[{speaker_b_label}]: ...)\n"
+        f"- **화자 태그는 반드시 줄 시작에만 사용**: [{speaker_a_label}]: ... / [{speaker_b_label}]: ...\n"
         "  (문장 중간에 [학생]님 같은 표기 금지 — 화자 분리 로직이 깨집니다)\n\n"
         f"{length_guide}\n"
         f"- 출력 스크립트는 **최소 {int(budget * 0.90)}자 이상** 작성하세요. (매우 중요)\n"
