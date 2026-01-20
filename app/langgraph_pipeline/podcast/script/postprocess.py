@@ -7,6 +7,128 @@ from .cleanup import clean_script
 
 logger = logging.getLogger(__name__)
 
+# =========================
+# ✅ 비완결성(하드캡/압축/이어쓰기) 꼬리 제거 유틸
+# - 예시 꼬리(“이렇게/계속/다음에…”) 나열 방식 X
+# - 구조적으로 “마지막 완결 문장까지만” 남김
+# =========================
+
+def _split_tag(line: str) -> tuple[str, str]:
+    """
+    '[선생님]:' 또는 '[학생]:' 태그 분리
+    """
+    m = re.match(r"^(\[(?:선생님|학생)\]:)\s*(.*)$", line.strip())
+    if not m:
+        return "", line.strip()
+    return m.group(1), (m.group(2) or "").strip()
+
+
+# 선생님 리액션-only(답변 없이 리액션만) 감지: 이건 “예시 꼬리”가 아니라
+# ‘답변이 없는 리액션’이라는 구조를 잡는 용도라 안전함.
+_TEACHER_REACTION_ONLY_RE = re.compile(
+    r"^(오|와|음|아|좋은 질문|좋은 질문이에요|아주 좋은 질문|맞아요|그렇죠|좋아요|"
+    r"좋습니다|좋은 포인트|중요한 질문|잘 물어봤어요)[^.!?]*[.!?]?$"
+)
+
+def _is_teacher_reaction_only(line: str) -> bool:
+    """
+    '오 좋은 질문이에요.' 처럼 답이 없는 리액션-only 선생님 라인 감지
+    """
+    tag, body = _split_tag(line)
+    if tag != "[선생님]:":
+        return False
+    if not body:
+        return True
+    # 너무 길면 리액션-only 가능성이 낮으므로 짧은 문장에만 적용
+    return len(body) <= 60 and bool(_TEACHER_REACTION_ONLY_RE.match(body.strip()))
+
+
+# 문장 종결로 “자연스럽게 끝난” 것으로 볼 수 있는 기본 패턴(너무 과도하게 확장하지 않음)
+# - 마침표/물음표/느낌표 우선
+# - 문장부호가 없을 때는 한국어 종결 어미 기반으로 보수적으로 판단
+_KO_SENTENCE_END_RE = re.compile(r"(다|요|죠|니다|습니다)\s*$")
+
+def _trim_to_last_terminal(text: str) -> str:
+    """
+    텍스트에서 '마지막 완결 문장'까지만 남긴다.
+    1) 문장부호(.!? )가 있으면: 마지막 .!? 위치까지
+    2) 문장부호가 없으면: 종결 어미(다/요/죠/니다/습니다)로 끝날 때만 그대로 유지
+       그렇지 않으면 빈 문자열(=완결 문장 없음) 반환
+    """
+    s = (text or "").strip()
+    if not s:
+        return ""
+
+    last_p = max(s.rfind("."), s.rfind("!"), s.rfind("?"))
+    if last_p != -1:
+        return s[: last_p + 1].strip()
+
+    # 문장부호가 없으면 “진짜로 끝난 문장”로 보이는 경우만 유지
+    if _KO_SENTENCE_END_RE.search(s):
+        return s
+
+    return ""
+
+def _sanitize_trailing_lines(lines: list[str], is_dialogue: bool) -> list[str]:
+    """
+    끝부분 비완결성 보정(구조 기반):
+    - 마지막 줄/마지막 발화에서 “마지막 완결 문장”까지만 남기고,
+      완결 문장이 전혀 없으면 그 줄은 제거한다.
+    - 대화형:
+        * 마지막이 선생님이고 리액션-only면 제거 → 클로징에서 질문 답변+마무리
+        * 마지막 선생님 발화는 '완결 문장까지만 trim'
+    - 강의형:
+        * 마지막 줄은 '완결 문장까지만 trim'
+    """
+    if not lines:
+        return lines
+
+    out = [ln.strip() for ln in lines if ln.strip()]
+    if not out:
+        return out
+
+    last = out[-1]
+
+    if is_dialogue:
+        # 태그 정규화(혹시 [선생님] 형태로 들어오면 [선생님]: 로 맞춤)
+        if last.startswith("[선생님]") and "[선생님]:" not in last:
+            last = last.replace("[선생님]", "[선생님]:", 1)
+        if last.startswith("[학생]") and "[학생]:" not in last:
+            last = last.replace("[학생]", "[학생]:", 1)
+
+        # 마지막이 선생님 발화인 경우에만 처리(문제의 대부분이 여기서 발생)
+        if last.startswith("[선생님]:"):
+            # 1) 리액션-only면 통째로 제거(답은 클로징이 하게)
+            if _is_teacher_reaction_only(last):
+                out.pop()
+                return out
+
+            # 2) 라인 내부에서 완결 문장까지만 남김
+            _, body = _split_tag(last)
+            trimmed = _trim_to_last_terminal(body)
+
+            if trimmed:
+                out[-1] = f"[선생님]: {trimmed}"
+            else:
+                # 완결 문장이 전혀 없으면 제거 → 클로징이 답변/정리 담당
+                out.pop()
+
+        else:
+            # 마지막이 학생 발화면(질문/감상) 그대로 두는 게 보통 더 자연스럽다.
+            # (클로징 프롬프트가 질문 답변/마무리를 담당)
+            pass
+
+    else:
+        # 강의형: 마지막 줄을 완결 문장까지만 남김
+        trimmed = _trim_to_last_terminal(last)
+        if trimmed:
+            out[-1] = trimmed
+        else:
+            out.pop()
+
+    return out
+
+
 def get_default_closing(is_dialogue: bool, last_speaker: str = None) -> str:
     if is_dialogue:
         if last_speaker == "student":
@@ -41,7 +163,9 @@ def hard_cap_fallback(
     else:                   # 15분(6000자) 이상
         cut_ratio = 0.85
 
-    target_cut = int(budget * cut_ratio)
+    # ✅ 엔딩 예산을 강제로 확보해서 클로징이 항상 생성되게 함(복불복 감소)
+    closing_reserve = max(220, int(budget * 0.08))
+    target_cut = min(int(budget * cut_ratio), max(0, budget - closing_reserve))
     logger.info(f"[하드캡 컷 비율] budget={budget}, cut_ratio={cut_ratio}, target_cut={target_cut}")
 
     lines = [ln.strip() for ln in script_text.splitlines() if ln.strip()]
@@ -78,6 +202,8 @@ def hard_cap_fallback(
         cut_lines.append(line)
         accumulated = test_text
 
+    # ✅ 꼬리 비완결성 보정(특히 '오 좋은 질문이에요'만 남는 케이스 제거)
+    cut_lines = _sanitize_trailing_lines(cut_lines, is_dialogue=is_dialogue)
     truncated = "\n".join(cut_lines).strip()
     truncated_len = estimate_korean_chars_for_budget(truncated)
 
@@ -92,13 +218,14 @@ def hard_cap_fallback(
                 break
         logger.info(f"[하드캡] {truncated_len}자 / 선생님:{teacher_count} / 학생:{student_count} / 마지막:{last_speaker}")
 
-        # ✅ 마지막 학생 질문 추출 (질문으로 끝났는데 답이 없는 케이스 방지)
+    # ✅ 마지막 학생 발화(질문 가능성) 추출: 물음표 없어도 잡아서 클로징에서 답변 유도
     last_student_q = None
     if is_dialogue:
         for line in reversed(cut_lines):
-            if re.match(r"^\[학생\]", line):
-                # 물음표가 있거나, 질문 말투(예: ~까요/~나요)가 있으면 질문으로 간주
-                if ("?" in line) or re.search(r"(까요|나요|할까요|뭘까요|뭔가요|인가요)\b", line):
+            if line.startswith("[학생]"):
+                # 너무 짧은 맞장구는 제외
+                _, body = _split_tag(line.replace("[학생]", "[학생]:") if "[학생]:" not in line else line)
+                if len(body) >= 8:
                     last_student_q = line.strip()
                     break
 
@@ -192,7 +319,11 @@ def continue_script_fallback(
     remaining_budget = max(0, budget - current_len)
 
     if remaining_budget < 200:
-        return (script_text + "\n" + get_default_closing(is_dialogue)).strip()
+        # ✅ 남은 예산이 적을수록 "미완 꼬리 + 클로징"이 되기 쉬움 → 꼬리 정리 후 클로징
+        lines = [ln.strip() for ln in script_text.splitlines() if ln.strip()]
+        lines = _sanitize_trailing_lines(lines, is_dialogue=is_dialogue)
+        base = "\n".join(lines).strip()
+        return (base + "\n" + get_default_closing(is_dialogue)).strip()
 
     if is_dialogue:
         prompt = f"""
@@ -245,7 +376,10 @@ def continue_script_fallback(
         # ✅ LLM이 이미 완결로 판단한 경우
         if "ALREADY_COMPLETE" in cont[:100].upper():
             logger.info("[이어쓰기 스킵] LLM이 스크립트가 이미 완결되었다고 판단")
-            return script_text
+            # 혹시 꼬리가 미완이면 한 번 정리
+            lines = [ln.strip() for ln in script_text.splitlines() if ln.strip()]
+            lines = _sanitize_trailing_lines(lines, is_dialogue=is_dialogue)
+            return "\n".join(lines).strip()
 
         if estimate_korean_chars_for_budget(cont) < 120:
             cont = get_default_closing(is_dialogue)

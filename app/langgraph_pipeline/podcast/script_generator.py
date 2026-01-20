@@ -526,6 +526,23 @@ class ScriptGenerator:
                             style=style,
                             extract_text_fn=self._extract_text_from_gemini_response,
                         )
+            else:
+                # ✅ 강의형도 최종 완결성 보정(끝 문장 중간 끊김/마무리 부재 방지)
+                tail = script_text[-600:]
+                looks_incomplete = (
+                    not re.search(r"[.!?]\s*$", tail.strip()) and
+                    not re.search(r"(감사합니다|다음 시간|정리|마무리|오늘.*배운)", tail)
+                )
+                if looks_incomplete:
+                    logger.warning("[강의형 최종 보정] 끝이 미완/마무리 부족 → 이어쓰기 폴백")
+                    script_text = continue_script_fallback(
+                        script_text=script_text,
+                        budget=budget,
+                        model=model,
+                        style=style,
+                        extract_text_fn=self._extract_text_from_gemini_response,
+                    )
+                    script_text = clean_script(script_text)
 
             final_current = measure(script_text)
             logger.info(f"[최종] {final_current}자, ratio={final_current/budget:.2f}")
