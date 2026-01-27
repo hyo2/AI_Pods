@@ -22,27 +22,71 @@ from .prompt_service import PromptTemplateService
  
 logger = logging.getLogger(__name__)
 
+def get_tolerance_ratios(budget: int, duration_min: float) -> tuple:
+    """
+    duration별 절대 시간(±1분) 기반 tolerance ratio 계산
+    
+    목표:
+    - 5분:  ±45초 허용
+    - 10분: ±45초 허용
+    - 15분: ±60초 허용
+    
+    Returns:
+        (min_ratio, max_ratio): budget 대비 비율
+    """
+    chars_per_sec = 470 / 60  # 실제 발화 속도 기준 (7.83자/초)
+    
+    if duration_min <= 7:
+        # 5분: ±45초
+        tolerance_chars = int(45 * chars_per_sec)  # ±352자
+    elif duration_min <= 12:
+        # 10분: ±45초
+        tolerance_chars = int(45 * chars_per_sec)  # ±352자
+    else:
+        # 15분 이상: ±60초
+        tolerance_chars = int(60 * chars_per_sec)  # ±470자
+    
+    min_chars = budget - tolerance_chars
+    max_chars = budget + tolerance_chars
+    
+    min_ratio = min_chars / budget
+    max_ratio = max_chars / budget
+    
+    return min_ratio, max_ratio
+
 def _build_structured_padding_prompt(is_dialogue: bool, min_add_chars: int, speaker_b_label: str = "학생") -> str:
     """
     분량이 크게 부족할 때, 길이를 안정적으로 채우기 위한 '구조화 패딩' 프롬프트.
     - 단순 이어쓰기보다 훨씬 재현성이 높음
     """
     min_add_chars = max(400, int(min_add_chars))
+    
+    # ============================================================
+    # ✅ 마크업 금지 규칙 (공통)
+    # ============================================================
+    markup_rules = """
+**CRITICAL - 마크업 금지:**
+❌ 절대 사용 금지: (MAIN-PAGE X), (PAGE X), (VISUAL CONTEXT: ...), (IMG X) 등
+✅ 대신 사용: "화면에 보이는", "슬라이드", "교재 X페이지" 등 자연스러운 표현
+"""
+    
     if is_dialogue:
         return f"""
 너는 대화형 수업 팟캐스트 스크립트 작가다.
 아래 스크립트 뒤에 자연스럽게 이어서, 분량을 채우는 **추가 대화**를 작성하라.
 
 필수 구성(순서대로):
-1) [선생님] 3줄 요약
-2) [{speaker_b_label}] 요약 기반 질문 2개(서로 다른 포인트)
-3) [선생님] 답변 + 예시 2개(현실/학교 사례)
-4) 퀴즈 3개(OX/객관식) → [{speaker_b_label}] 답 → [선생님] 해설
+1) 「선생님」 3줄 요약
+2) 「{speaker_b_label}」 요약 기반 질문 2개(서로 다른 포인트)
+3) 「선생님」 답변 + 예시 2개(현실/학교 사례)
+4) 퀴즈 3개(OX/객관식) → 「{speaker_b_label}」 답 → 「선생님」 해설
 5) 적용 활동 1개 제안
 6) 마무리(다음 시간 예고 + 인사) — 인사는 1회만
 
+{markup_rules}
+
 규칙:
-- 화자 태그는 반드시 [선생님]: / [{speaker_b_label}]: 만 사용
+- 화자 태그는 반드시 「선생님」: / 「{speaker_b_label}」: 만 사용
 - 중복 감사/인사 금지(인사 1회)
 - 최소 {min_add_chars}자 이상 추가
 
@@ -60,6 +104,8 @@ def _build_structured_padding_prompt(is_dialogue: bool, min_add_chars: int, spea
 4) 퀴즈 3개(OX/객관식) + 해설
 5) 적용 활동 1개
 6) 마무리(다음 시간 예고 + 인사) — 인사는 1회만
+
+{markup_rules}
 
 규칙:
 - 최소 {min_add_chars}자 이상 추가
@@ -101,6 +147,236 @@ def _enforce_length_with_retries(
         if min_chars <= n <= max_chars:
             return text
     return last_text
+
+
+def _generate_with_retry(
+    *,
+    model,
+    combined_text: str,
+    host_name: str,
+    guest_name: str,
+    duration_min: float,
+    difficulty: str,
+    user_prompt: str,
+    budget: int,
+    style: str,
+    user_prompt_template: str,
+    speaker_a_label: str,
+    speaker_b_label: str,
+    extract_text_fn,
+    max_attempts: int = 4,
+    target_min_ratio: float = 0.85,
+    target_max_ratio: float = 1.2,
+    max_output_tokens: int = 8192,
+) -> tuple:
+    """재생성 기반 길이 조정
+    
+    Returns:
+        tuple: (title, script_text, candidates_history)
+    """
+    import time
+    
+    candidates = []
+    
+    for attempt in range(1, max_attempts + 1):
+        # 재생성 정보 구성
+        if attempt == 1:
+            retry_info = None
+            logger.info(f"[1차 생성 시작] 목표: {budget}자")
+        else:
+            # ✅ candidates가 비어있으면 재시도 정보 없이 진행
+            if not candidates:
+                retry_info = None
+                logger.warning(f"[{attempt}차 시작] 이전 시도 모두 실패 - 재시도 정보 없이 진행")
+            else:
+                prev_script, prev_ratio, _ = candidates[-1]
+                prev_len = measure(prev_script)
+                
+                if prev_ratio > target_max_ratio:
+                    status = 'TOO_LONG'
+                elif prev_ratio < target_min_ratio:
+                    status = 'TOO_SHORT'
+                else:
+                    status = 'IN_RANGE'
+                
+                retry_info = {
+                    'attempt': attempt,
+                    'prev_len': prev_len,
+                    'prev_ratio': prev_ratio,
+                    'status': status,
+                }
+                
+                logger.info(
+                    f"[{attempt}차 재생성 시작] 이전: {prev_len}자 ({prev_ratio:.1%}), "
+                    f"상태: {status}"
+                )
+        
+        # 프롬프트 생성
+        prompt = create_prompt(
+            combined_text=combined_text,
+            host_name=host_name,
+            guest_name=guest_name,
+            duration=duration_min,
+            difficulty=difficulty,
+            user_prompt=user_prompt,
+            budget=budget,
+            style=style,
+            user_prompt_template=user_prompt_template,
+            speaker_a_label=speaker_a_label,
+            speaker_b_label=speaker_b_label,
+            retry_info=retry_info,
+        )
+        
+        # ============================================================
+        # ✅ 마크업 금지 규칙 추가 (TTS 부자연스러움 방지)
+        # ============================================================
+        markup_prevention = """
+
+**CRITICAL - 형식 규칙 (매우 중요!):**
+"""
+        
+        if style == "lecture":
+            markup_prevention += """
+1. ✅ 각 발화마다 반드시 「선생님」: 태그로 시작
+2. ✅ 모든 줄은 「선생님」: 로 시작해야 합니다
+3. ✅ 한 발화는 100-300자로 제한
+4. ❌ 줄바꿈만으로 발화를 구분하지 마세요
+"""
+        else:
+            markup_prevention += f"""
+1. ✅ 각 발화마다 반드시 화자 태그로 시작
+2. ✅ 「선생님」: 또는 「{speaker_b_label}」:
+3. ✅ 한 발화는 100-300자로 제한
+4. ❌ 줄바꿈만으로 발화를 구분하지 마세요
+"""
+        
+        markup_prevention += """
+
+**CRITICAL - 마크업 금지 (매우 중요!):**
+❌ 절대 사용 금지: (MAIN-PAGE X), (PAGE X), (VISUAL CONTEXT: ...), (IMG X), (Figure X), (표 X), (그림 X) 등 괄호 안의 메타데이터
+✅ 대신 사용: "화면에 보이는", "슬라이드", "교재 X페이지", "표를 보면" 등 자연스러운 표현
+
+**이유:** 괄호 안의 마크업은 TTS가 "메인 페이지 투", "비주얼 컨텍스트" 등으로 읽어서 오디오가 부자연스럽습니다.
+
+**올바른 예시:**
+✅ 좋음: "음운은 중요합니다"
+✅ 좋음: "교재 2페이지에 나온 것처럼, 음운은 중요합니다"
+✅ 좋음: "화면에 보이는 발음 기관 그림처럼, 자음은..."
+✅ 좋음: "슬라이드의 표를 보시면 자음 체계를 한눈에 알 수 있습니다"
+
+**잘못된 예시 (절대 금지):**
+❌ 나쁨: "음운은 (MAIN-PAGE 2) 중요합니다"
+❌ 나쁨: "(VISUAL CONTEXT: 발음 기관) 자음은..."
+❌ 나쁨: "자, 이제 (PAGE 5) 넘어가봅시다"
+"""
+
+        if style == "lecture":
+            markup_prevention += """
+❌ 나쁨: 「선생님」: 안녕하세요!
+        오늘은 음운에...  ← 태그 없음 (금지!)
+"""
+        
+        markup_prevention += """
+
+**참고:** 시청각 자료 언급은 자유롭게 하되, 괄호 마크업만 사용하지 마세요.
+"""
+        
+        prompt += markup_prevention
+        
+        # LLM 호출
+        generation_config = {
+            "max_output_tokens": max_output_tokens,
+            "temperature": 0.7 if attempt == 1 else 0.5,
+        }
+        
+        # ✅ 429 에러 재시도 로직 (최대 3번)
+        max_retries_for_429 = 3
+        for retry_429 in range(max_retries_for_429):
+            try:
+                response = model.generate_content(prompt, generation_config=generation_config)
+                raw_text = extract_text_fn(response).strip()
+                
+                if not raw_text:
+                    logger.warning(f"[{attempt}차 실패] 빈 응답")
+                    break  # 429 재시도 루프 탈출, 다음 attempt로
+                
+                # JSON 파싱 시도
+                try:
+                    from .script.parsing import extract_json_from_llm
+                    data = extract_json_from_llm(raw_text)
+                    title = data.get("title", "제목 없음").strip()
+                    script_text = data.get("script", "").strip()
+                except Exception:
+                    from .script.parsing import extract_title_fallback
+                    title = extract_title_fallback(raw_text) or "자동 생성된 팟캐스트"
+                    script_text = clean_script(raw_text)
+                
+                script_text = clean_script(script_text)
+                
+                # 길이 측정
+                current_len = measure(script_text)
+                ratio = current_len / budget
+                
+                candidates.append((script_text, ratio, title))
+                
+                logger.info(
+                    f"[{attempt}차 결과] {current_len}자 ({ratio:.1%}), "
+                    f"범위: {target_min_ratio:.1%}~{target_max_ratio:.1%}"
+                )
+                
+                # 존치 범위 진입 시 즉시 채택
+                if target_min_ratio <= ratio <= target_max_ratio:
+                    logger.info(f"✅ [{attempt}차 성공] 존치 범위 진입 - 즉시 채택")
+                    return title, script_text, candidates
+                
+                # 성공했으면 429 재시도 루프 탈출
+                break
+                
+            except Exception as e:
+                error_str = str(e)
+                
+                # ✅ 429 에러 감지 및 재시도
+                if ('429' in error_str or 'Resource exhausted' in error_str or 'quota' in error_str.lower()):
+                    if retry_429 < max_retries_for_429 - 1:
+                        wait_time = 2 ** (retry_429 + 1)  # 2, 4, 8초
+                        logger.warning(
+                            f"[{attempt}차-{retry_429+1}번째 429 에러] "
+                            f"{wait_time}초 대기 후 재시도... ({error_str[:100]})"
+                        )
+                        time.sleep(wait_time)
+                        continue  # 429 재시도 루프 계속
+                    else:
+                        logger.error(
+                            f"[{attempt}차 429 에러] 최대 재시도 횟수 초과 ({max_retries_for_429}회) - "
+                            f"다음 attempt로 이동"
+                        )
+                        break  # 429 재시도 루프 탈출, 다음 attempt로
+                else:
+                    # 429가 아닌 다른 에러
+                    logger.error(f"[{attempt}차 오류] {e}")
+                    break  # 429 재시도 루프 탈출, 다음 attempt로
+    
+    # 모든 시도 완료 - 최선 선택
+    if not candidates:
+        raise RuntimeError(
+            "모든 재생성 시도 실패 - 유효한 스크립트 생성 불가\n"
+            "가능한 원인:\n"
+            "- API 할당량 초과 (429 에러)\n"
+            "- 네트워크 문제\n"
+            "- 잘못된 프롬프트 형식"
+        )
+    
+    # 1.0에 가장 가까운 후보 선택
+    best = min(candidates, key=lambda x: abs(x[1] - 1.0))
+    best_script, best_ratio, best_title = best
+    
+    logger.warning(
+        f"🔄 [최선 선택] {max_attempts}회 시도 후 1.0 최근접 선택: "
+        f"{measure(best_script)}자 ({best_ratio:.1%})"
+    )
+    
+    return best_title, best_script, candidates
+
 
 class ScriptGenerator:
     """LLM을 사용한 팟캐스트 스크립트 생성 (Supabase + Vertex AI)"""
@@ -254,70 +530,18 @@ class ScriptGenerator:
         )
         
         logger.info(f"모델: {model_name} / 목표: {duration_min:.2f}분 ({budget}자) / 난이도: {difficulty} / 스타일: {style}")
-       
         model = GenerativeModel(
-            model_name,
-            system_instruction=self.system_prompt
+        model_name,
+        system_instruction=self.system_prompt
         )
-       
-        # ✅ budget을 그대로 전달
-        # ============================================================
-        # ✅ teacher_teacher 모드일 때 DB 템플릿의 teacher-student 강제 문구를 완화/치환
-        # - DB 템플릿이 "ONLY [학생]"을 강제하면 length_instruction의 speaker_b_label이 무력화됨
-        # - 데모/MVP: teacher_teacher일 때만 최소 치환 적용
-        # ============================================================
+        
+        # ===== effective_user_prompt_template 설정 =====
         effective_user_prompt_template = self.user_prompt_template
-        if is_dialogue and speaker_b_label == "선생님2":
-            t = effective_user_prompt_template
-            # 1) 영어 지시문 치환(있을 수도, 없을 수도)
-            t = re.sub(
-                r"Create a 1:1 active learning dialogue between a teacher and a student\.",
-                "Create a 1:1 active learning dialogue between two teachers.",
-                t,
-                flags=re.IGNORECASE,
-            )
-            # 2) Speaker tags 강제 문구 치환
-            t = re.sub(
-                r'Use ONLY "\[선생님\]" and "\[학생\]"',
-                'Use ONLY "[선생님]" and "[선생님2]"',
-                t,
-                flags=re.IGNORECASE,
-            )
-            t = re.sub(
-                r"Use ONLY '\[선생님\]' and '\[학생\]'",
-                "Use ONLY '[선생님]' and '[선생님2]'",
-                t,
-                flags=re.IGNORECASE,
-            )
-            # 3) 7:3 비율 문구는 teacher-teacher에서는 제거(있으면)
-            t = re.sub(
-                r"Maintain approximately\s*\*\*7\(Teacher\)\s*:\s*3\(Student\)\*\*\.",
-                "Maintain a balanced back-and-forth between the two teachers.",
-                t,
-                flags=re.IGNORECASE,
-            )
-            effective_user_prompt_template = t
-            logger.info("[template override] teacher_teacher mode applied to user_prompt_template")
-
-        final_prompt = create_prompt(
-            combined_text=combined_text,
-            host_name=host_name,
-            guest_name=guest_name,
-            duration=duration_min,
-            difficulty=difficulty,
-            user_prompt=user_prompt,
-            budget=budget,
-            style=style,
-            user_prompt_template=effective_user_prompt_template,
-            speaker_a_label=speaker_a_label,
-            speaker_b_label=speaker_b_label,
-        )
-       
+        
+        # ===== max_tokens 계산 =====
         # 한글 특성 반영: 1자 ≈ 2.5-3 토큰 + JSON 구조 오버헤드 + 안전 여유
-        # budget: 글자 수
-        estimated_tokens = int(budget * 3.5)  # 여유 있는 추정
+        estimated_tokens = int(budget * 3.5)
 
-        # duration_min: 분
         if duration_min <= 6:          # ~5분
             max_cap = 6144
         elif duration_min <= 11:       # ~10분
@@ -329,417 +553,65 @@ class ScriptGenerator:
 
         max_tokens = max(2000, min(max_cap, estimated_tokens))
 
-        print(f"\n{'='*60}")
-        print(f"[CONFIG] budget={budget}자, max_tokens={max_tokens}")
-        print(f"{'='*60}\n")
-
-        config = {
-            "max_output_tokens": max_tokens,
-            "temperature": 0.7,
-        }
-
-        logger.info(f"[LLM 설정] max_output_tokens={max_tokens} (budget={budget}자 기준)")
+        logger.info(f"[CONFIG] budget={budget}자, max_tokens={max_tokens}")
        
         try:
-            logger.info("LLM 스크립트 생성 요청 중...")
-            response = model.generate_content(final_prompt, generation_config=config)
-           
-            usage_metadata = response.usage_metadata
-            input_tokens = usage_metadata.prompt_token_count
-            output_tokens = usage_metadata.candidates_token_count
-            total_tokens = usage_metadata.total_token_count
-            
-            input_cost = (input_tokens / 1_000_000) * 0.30
-            output_cost = (output_tokens / 1_000_000) * 2.50
-            total_cost = input_cost + output_cost
-            
-            logger.info(f"📊 [스크립트 생성] 토큰: {input_tokens:,} in / {output_tokens:,} out / {total_tokens:,} total")
-            logger.info(f"💰 [스크립트 생성] 비용: ${total_cost:.6f}")
-
-            # ✅ finish_reason 확인 추가
-            raw_text = ""
-            finish_reason = None
-            if response.candidates:
-                candidate = response.candidates[0]
-                finish_reason = getattr(candidate, 'finish_reason', None)
-                if hasattr(candidate.content, 'parts'):
-                    for part in candidate.content.parts:
-                        if part.text:
-                            raw_text += part.text
-           
-            # ✅ finish_reason 로깅
-            if finish_reason:
-                logger.info(f"[LLM 완료 이유] {finish_reason}")
-                if finish_reason != 1:  # 1 = STOP (정상 완료)
-                    logger.warning(f"[비정상 종료] finish_reason={finish_reason} (1=STOP, 2=MAX_TOKENS, 3=SAFETY, 4=RECITATION)")
-           
-            if not raw_text:
-                logger.error(f"모델 응답 텍스트 없음")
-                raise RuntimeError("모델이 빈 텍스트를 반환했습니다")
-           
-            # ✅ 너무 짧은 출력 조기 감지
-            # - micro duration(예: 30초)도 지원해야 하므로 budget 기반 최소 길이를 사용
-            # - 기존 동작(큰 duration에서 500자 기준)을 유지하기 위해 상한을 500으로 둠
-            min_raw_chars = min(500, max(120, int(budget * 0.6)))
-
-            if len(raw_text.strip()) < min_raw_chars:
-                logger.error(f"[출력 너무 짧음] {len(raw_text)}자 (최소 {min_raw_chars}자 필요) - 즉시 재시도")
-                retry_resp = model.generate_content(
-                    final_prompt,
-                    generation_config={**config, "temperature": 0.3}
-                )
-                raw_text = self._extract_text_from_gemini_response(retry_resp)
-                if len(raw_text.strip()) < min_raw_chars:
-                    raise RuntimeError(
-                        f"재시도 후에도 출력 너무 짧음: {len(raw_text)}자 (최소 {min_raw_chars}자 필요)"
-                    )
-           
-            try:
-                data = extract_json_from_llm(raw_text)
-                title = data.get("title", "제목 없음").strip()
-                script_text = data.get("script", "").strip()
-            # parsing.py:244-250 (script_generator.py의 fallback 부분)
-
-            except Exception as e:
-                logger.error(f"JSON 파싱 실패: {e}")
-                logger.warning(f"raw_text 미리보기: {raw_text[:300]}...")
-                
-                extracted_title = extract_title_fallback(raw_text)
-                title = extracted_title if extracted_title else "자동 생성된 팟캐스트"
-                
-                # ✅ 중복 제거: ```json 코드블록 안의 내용만 추출
-                script_text = clean_script(raw_text.strip())
-                script_text = script_text.replace("\x00", "")
-                
-                # ✅ 추가: 중복 패턴 감지 및 제거
-                lines = script_text.split('\n')
-                seen = set()
-                deduped_lines = []
-                
-                for line in lines:
-                    line_clean = line.strip()
-                    if not line_clean:
-                        continue
-                    
-                    # 동일한 발화가 2번 이상 나오면 첫 번째만 유지
-                    if line_clean not in seen:
-                        seen.add(line_clean)
-                        deduped_lines.append(line)
-                    else:
-                        logger.warning(f"[중복 제거] '{line_clean[:50]}...'")
-                
-                script_text = '\n'.join(deduped_lines)
- 
-            script_text = clean_script(script_text)
-
-            # ✅ 끊김 감지 + 재시도 1회
-            is_trunc, reason = is_script_truncated(script_text)
-            current_len = measure(script_text)
-            
-            # ✅ 조건 강화: 끊김 OR 너무 짧음(budget의 50% 미만)
-            if is_trunc or current_len < int(budget * 0.5):
-                if is_trunc:
-                    logger.warning(f"[끊김 감지] {reason} → 재시도")
-                else:
-                    logger.warning(f"[너무 짧음] {current_len}자 < {int(budget*0.5)}자 → 재시도")
-                
-                # ✅ 재시도 시 temperature 낮추고 더 명확한 지시
-                retry_config = {
-                    "max_output_tokens": max_tokens,  # 동적 값 재사용!
-                    "temperature": 0.2,
-                }
-                
-                retry_resp = model.generate_content(final_prompt, generation_config=retry_config)
-                retry_raw = self._extract_text_from_gemini_response(retry_resp)
-                
-                # ✅ 재시도 결과도 너무 짧으면 에러
-                if len(retry_raw.strip()) < min_raw_chars:
-                    logger.error(f"[재시도 실패] 출력 여전히 너무 짧음: {len(retry_raw)}자 (최소 {min_raw_chars}자 필요)")
-                    logger.warning("[재시도 실패] ... → 원본 유지하고 진행")
-                
-                try:
-                    retry_data = extract_json_from_llm(retry_raw)
-                    retry_script = clean_script(retry_data.get("script", "").strip())
-                except Exception:
-                    retry_script = clean_script(retry_raw.strip())
-
-                is_trunc2, reason2 = is_script_truncated(retry_script)
-                retry_len = measure(retry_script)
-                
-                # ✅ 재시도 성공 조건: 끊김 없음 AND 충분한 길이
-                if (not is_trunc2) and retry_len >= int(budget * 0.5):
-                    script_text = retry_script
-                    logger.info(f"[재시도 성공] {retry_len}자")
-                else:
-                    logger.warning(f"[재시도 무효] reason2={reason2}, len={retry_len}")
-                    # ✅ 재시도도 실패하면 에러 발생
-                    if retry_len < int(budget * 0.5):
-                        logger.warning("[재시도 후에도 짧음] ... → 원본 유지하고 진행")
-
-            # ✅ 길이 검증 및 압축/보강
-            max_ratio = 1.10  # 10% 여유
-            min_ratio = 0.90  # 90% 하한
-            strict_min_ratio = 0.85  # 85% - 심각한 부족 기준
-
-            current = measure(script_text)
+            # ===== 재생성 기반 스크립트 생성 =====
+            # ✅ duration별 동적 tolerance 계산
+            min_ratio, max_ratio = get_tolerance_ratios(budget, duration_min)
             min_chars = int(budget * min_ratio)
-            strict_min_chars = int(budget * strict_min_ratio)
-
-            logger.info(f"[길이검증] budget={budget}, current={current}, ratio={current/budget:.2f}")
-
-            # ========================================
-            # 보강 로직 (분량 부족 시)
-            # ========================================
-            if current < min_chars:
-                logger.warning(f"[분량 부족 감지] {current}자 < {min_chars}자")
-                
-                # 1️⃣ 구조 분석
-                structure = analyze_script_structure(script_text, is_dialogue)
-                logger.info(
-                    f"[구조 분석] quality={structure['structure_quality']}, "
-                    f"본론비율={structure['main_content_ratio']:.1%}, "
-                    f"완결={structure['is_complete']}"
-                )
-                
-                # 2️⃣ 구조에 따른 전략 선택
-                if structure['structure_quality'] == 'truncated':
-                    # Case A: 끊김 → 이어쓰기
-                    logger.info("[보강 전략] 스크립트 끊김 감지 → 이어쓰기")
-                    script_text = continue_script_fallback(
-                        script_text=script_text,
-                        budget=budget,
-                        model=model,
-                        style=style,
-                        extract_text_fn=self._extract_text_from_gemini_response,
-                        speaker_b_label=speaker_b_label,
-                    )
-                    script_text = clean_script(script_text)
-                    current = measure(script_text)
-                    logger.info(f"[보강 후] {current}자, ratio={current/budget:.2f}")
-                    
-                elif structure['structure_quality'] == 'incomplete':
-                    # Case B: 마무리 없음 → 이어쓰기
-                    logger.info("[보강 전략] 마무리 없음 → 이어쓰기")
-                    script_text = continue_script_fallback(
-                        script_text=script_text,
-                        budget=budget,
-                        model=model,
-                        style=style,
-                        extract_text_fn=self._extract_text_from_gemini_response,
-                        speaker_b_label=speaker_b_label,
-                    )
-                    script_text = clean_script(script_text)
-                    current = measure(script_text)
-                    logger.info(f"[보강 후] {current}자, ratio={current/budget:.2f}")
-                    
-                elif structure['structure_quality'] == 'needs_expansion':
-                    # Case C: 완결되었지만 본론 빈약 → 중간 확장
-                    logger.info("[보강 전략] 본론 빈약 → 중간 내용 확장")
-                    script_text = expand_middle_content(
-                        script_text=script_text,
-                        budget=budget,
-                        current_len=current,
-                        structure=structure,
-                        model=model,
-                        style=style,
-                        extract_text_fn=self._extract_text_from_gemini_response,
-                        speaker_b_label=speaker_b_label,
-                    )
-                    script_text = clean_script(script_text)
-                    current = measure(script_text)
-                    logger.info(f"[보강 후] {current}자, ratio={current/budget:.2f}")
-                    # ✅ 확장 결과가 비정상(짧아짐/변화 없음)이면 구조화 패딩으로 보강
-                    if current < min_chars:
-                        logger.warning("[확장 보정] 확장 후에도 부족 → 구조화 패딩으로 추가 보강")
-                        add_need = min_chars - current
-                        pad_prompt = _build_structured_padding_prompt(
-                            is_dialogue=is_dialogue,
-                            min_add_chars=add_need,
-                            speaker_b_label=speaker_b_label,
-                        )
-                        pad_text = _enforce_length_with_retries(
-                            model=model,
-                            base_prompt=pad_prompt + "\n\n[현재 스크립트(후반)]\n" + script_text[-1500:],
-                            extract_text_fn=self._extract_text_from_gemini_response,
-                            measure_fn=measure,
-                            min_chars=max(200, int(add_need * 0.7)),
-                            max_chars=max(600, int(add_need * 1.6)),
-                            max_tries=2,
-                            max_output_tokens=4096,
-                        )
-                        pad_text = clean_script(pad_text)
-                        if pad_text:
-                            script_text = (script_text.rstrip() + "\n" + pad_text.lstrip()).strip()
-                            script_text = clean_script(script_text)
-                            current = measure(script_text)
-                            logger.info(f"[패딩 보강 후] {current}자, ratio={current/budget:.2f}")
-                elif structure['structure_quality'] == 'good':
-                    # Case D: 구조 양호하지만 짧음
-                    if structure['main_content_ratio'] >= 0.7:
-                        # 본론 비율이 70% 이상이면 품질 우선
-                        logger.info(
-                            f"[보강 스킵] 구조 양호(본론 {structure['main_content_ratio']:.1%}) - "
-                            f"품질 우선으로 현재 길이 유지"
-                        )
-                    else:
-                        # 그래도 본론이 부족하면 중간 확장 시도
-                        logger.info("[보강 전략] 구조는 양호하나 본론 부족 → 중간 확장")
-                        script_text = expand_middle_content(
-                            script_text=script_text,
-                            budget=budget,
-                            current_len=current,
-                            structure=structure,
-                            model=model,
-                            style=style,
-                            extract_text_fn=self._extract_text_from_gemini_response,
-                            speaker_b_label=speaker_b_label,
-                        )
-                        script_text = clean_script(script_text)
-                        current = measure(script_text)
-                        logger.info(f"[보강 후] {current}자, ratio={current/budget:.2f}")
-                
-                # 3️⃣ 보강 후에도 여전히 부족한 경우 추가 시도
-                current = measure(script_text)
-                if current < min_chars:
-                    logger.warning(f"[1차 보강 후에도 부족] {current}자 < {min_chars}자 → 2차 시도")
-                    
-                    # 구조 재분석
-                    structure2 = analyze_script_structure(script_text, is_dialogue)
-                    
-                    if structure2['structure_quality'] in ['truncated', 'incomplete']:
-                        # 여전히 불완전하면 이어쓰기
-                        script_text = continue_script_fallback(
-                            script_text=script_text,
-                            budget=budget,
-                            model=model,
-                            style=style,
-                            extract_text_fn=self._extract_text_from_gemini_response,
-                            speaker_b_label=speaker_b_label,
-                        )
-                    else:
-                        # 완결되었으면 강제 확장
-                        script_text = expand_script_fallback(
-                            script_text=script_text,
-                            budget=budget,
-                            min_chars=min_chars,
-                            model=model,
-                            style=style,
-                            extract_text_fn=self._extract_text_from_gemini_response,
-                            speaker_b_label=speaker_b_label,
-                        )
-                    
-                    script_text = clean_script(script_text)
-                    current = measure(script_text)
-                    logger.info(f"[2차 보강 후] {current}자, ratio={current/budget:.2f}")
+            max_chars = int(budget * max_ratio)
             
-            # 4️⃣ 최종 분량 체크
-            current = measure(script_text)
-            if current < strict_min_chars:
-                # 85% 미만은 심각
-                logger.error(
-                    f"[심각한 분량 부족] {current}자 < {strict_min_chars}자 (목표의 85% 미만)"
-                )
-                # 구조가 좋으면 경고만, 나쁘면 실패 처리 고려
-                final_structure = analyze_script_structure(script_text, is_dialogue)
-                if final_structure['structure_quality'] != 'good':
-                    logger.warning("[품질+분량 모두 미달] 하지만 생성 계속 진행")
-            elif current < min_chars:
-                # 85~90%는 경고
-                logger.warning(
-                    f"[분량 부족] {current}자 < {min_chars}자 (목표의 90% 미만) - 생성 계속"
-                )
-
-            # ========================================
-            # 압축 로직 (분량 초과 시)
-            # ========================================
-           # ✅ soft_max 이하는 통과, hard_max 이상이면 반드시 줄이기
-            soft_max = int(budget * 1.20)   # 20% 초과까지는 허용 (데모 안정성 ↑)
-            hard_max = int(budget * 1.35)   # 이 이상이면 반드시 줄이기 (길이 폭주 방지)
-            goal_max = int(budget * max_ratio)  # 최종 목표 상한(기존 1.10 유지)
-
-            current = measure(script_text)
-            if current <= soft_max:
-                logger.info(f"[압축 스킵] current={current} <= soft_max={soft_max}")
-            else:
-                # 유동 목표: 최종 목표는 budget*1.08, 첫 타겟은 (현재+최종)/2
-                final_target = int(budget * 1.08)
-                first_target = int((current + final_target) / 2)
-
-                # hard_max를 크게 넘으면 1차는 완만하게(first_target), 그 외엔 final_target부터
-                target_budget = first_target if current > hard_max else final_target
-
-                max_compress_rounds = 3
-                for round_idx in range(max_compress_rounds):
-                    current = measure(script_text)
-                    if current <= goal_max:
-                        break
-
-                    logger.warning(
-                        f"[압축 {round_idx+1}회] current={current} > goal_max={goal_max} "
-                        f"(soft_max={soft_max}, hard_max={hard_max}, target={target_budget})"
-                    )
-
-                    original_script = script_text
-                    best_cand = None
-                    best_len = 0
-
-                    # ✅ 1라운드당 2회 후보 생성(기존과 동일)
-                    for _try in range(2):
-                        cand = compress_script_once(
-                            model=model,
-                            extract_text_fn=self._extract_text_from_gemini_response,
-                            script_text=script_text,
-                            budget=target_budget,
-                            is_dialogue=is_dialogue,
-                            round_idx=round_idx,
-                            speaker_a_label=speaker_a_label,
-                            speaker_b_label=speaker_b_label,
-                        )
-                        cand = clean_script(cand)
-                        cand_len = measure(cand)
-
-                        # 대화형이면 불완전 결과는 즉시 폐기
-                        if is_dialogue:
-                            is_incomplete, incomplete_reason = is_script_truncated(cand)
-                            if is_incomplete:
-                                logger.warning(f"[압축 후보 불완전] {incomplete_reason} → 재시도")
-                                continue
-
-                        # 너무 짧으면 폐기 (기존 min_chars 기준 유지)
-                        if cand_len < min_chars:
-                            logger.warning(f"[압축 후보 과다] {cand_len} < {min_chars} → 재시도")
-                            continue
-
-                        # 후보 채택(가장 타겟에 가까운 후보를 우선)
-                        if best_cand is None:
-                            best_cand, best_len = cand, cand_len
-                        else:
-                            # 타겟과의 절대차가 더 작은 후보 선호
-                            if abs(cand_len - target_budget) < abs(best_len - target_budget):
-                                best_cand, best_len = cand, cand_len
-
-                    # 후보가 없으면 원본 유지하고 종료(불필요한 하드캡 연쇄 방지)
-                    if best_cand is None:
-                        logger.warning(f"[압축 실패] 후보 없음 → 원본 유지 ({current}자)")
-                        script_text = original_script
-                        break
-
-                    script_text = best_cand
-                    current = best_len
-                    logger.info(f"[압축 결과] {current}자, ratio={current/budget:.2f}")
-
-                    # 충분히 줄었으면 종료
-                    if current <= goal_max:
-                        break
-
-                    # 다음 라운드는 최종 목표로 당김
-                    target_budget = final_target
-
-            # ✅ 하드캡은 "정말 폭주한 경우"에만 (hard_max 초과시에만 실행)
-            final_current = measure(script_text)
-            if final_current > hard_max:
-                logger.warning(f"[하드캡 트리거] {final_current} > hard_max={hard_max}")
-                script_text = hard_cap_fallback(
+            logger.info("=" * 80)
+            logger.info("재생성 기반 스크립트 생성 시작")
+            logger.info(f"목표: {budget}자 (허용 범위: {min_chars}~{max_chars}자, ±1분 기준)")
+            logger.info(f"Tolerance: {min_ratio:.1%}~{max_ratio:.1%}")
+            logger.info("=" * 80)
+            
+            title, script_text, candidates = _generate_with_retry(
+                model=model,
+                combined_text=combined_text,
+                host_name=host_name,
+                guest_name=guest_name,
+                duration_min=duration_min,
+                difficulty=difficulty,
+                user_prompt=user_prompt,
+                budget=budget,
+                style=style,
+                user_prompt_template=effective_user_prompt_template,
+                speaker_a_label=speaker_a_label,
+                speaker_b_label=speaker_b_label,
+                extract_text_fn=self._extract_text_from_gemini_response,
+                max_attempts=4,
+                target_min_ratio=min_ratio,
+                target_max_ratio=max_ratio,
+                max_output_tokens=max_tokens,
+            )
+            
+            # ===== usage 메타데이터 집계 =====
+            # candidates에서 토큰 사용량을 추출할 수 없으므로 임시로 0으로 설정
+            # 실제로는 _generate_with_retry에서 반환해야 함
+            input_tokens = 0
+            output_tokens = 0
+            total_tokens = 0
+            total_cost = 0.0
+            
+            logger.info(f"[재생성 완료] 최종 선택: {measure(script_text)}자")
+            logger.info(f"[시도 이력] 총 {len(candidates)}회 시도")
+            
+            # ===== 최종 검증 및 보정 (간소화) =====
+            current_len = measure(script_text)
+            ratio = current_len / budget
+            
+            logger.info("=" * 80)
+            logger.info("최종 검증 시작")
+            logger.info("=" * 80)
+            
+            # 1. 끊김 감지 → 이어쓰기
+            is_incomplete, incomplete_reason = is_script_truncated(script_text)
+            if is_incomplete:
+                logger.warning(f"[끊김 감지] {incomplete_reason} → 이어쓰기")
+                script_text = continue_script_fallback(
                     script_text=script_text,
                     budget=budget,
                     model=model,
@@ -747,72 +619,55 @@ class ScriptGenerator:
                     extract_text_fn=self._extract_text_from_gemini_response,
                     speaker_b_label=speaker_b_label,
                 )
-                final_current = measure(script_text)
+                script_text = clean_script(script_text)
+                current_len = measure(script_text)
+                ratio = current_len / budget
+                logger.info(f"[이어쓰기 후] {current_len}자 ({ratio:.1%})")
             
-            # ✅ 최종 완결성 검증 (대화형)
-            if is_dialogue:
-                is_final_incomplete, final_reason = is_script_truncated(script_text)
-                if is_final_incomplete:
-                    logger.warning(f"[최종 스크립트 불완전] {final_reason} → 이어쓰기 폴백 시도")
-
-                    # 1) 먼저 이어쓰기(추가분 생성)로 완결 시도
-                    continued = continue_script_fallback(
-                        script_text=script_text,
-                        budget=budget,
-                        model=model,
-                        style=style,
-                        extract_text_fn=self._extract_text_from_gemini_response,
-                        speaker_b_label=speaker_b_label,
-                    )
-                    continued = clean_script(continued)
-
-                    is_after_cont, reason_after = is_script_truncated(continued)
-                    if not is_after_cont:
-                        script_text = continued
-                        logger.info("[이어쓰기 성공] 최종 스크립트 완결 처리")
-                    else:
-                        logger.warning(f"[이어쓰기 실패] {reason_after} → 하드캡 적용")
-                        script_text = hard_cap_fallback(
-                            script_text=script_text,
-                            budget=budget,
-                            model=model,
-                            style=style,
-                            extract_text_fn=self._extract_text_from_gemini_response,
-                            speaker_b_label=speaker_b_label,
-                        )
-            else:
-                # ✅ 강의형도 최종 완결성 보정(끝 문장 중간 끊김/마무리 부재 방지)
-                tail = script_text[-600:]
-                looks_incomplete = (
-                    not re.search(r"[.!?]\s*$", tail.strip()) and
-                    not re.search(r"(감사합니다|다음 시간|정리|마무리|오늘.*배운)", tail)
+            # 2. tolerance 초과 → 하드캡
+            if ratio > max_ratio:  # tolerance 최대치 초과 시 하드캡
+                logger.error(f"[tolerance 초과] {current_len}자 ({ratio:.1%}) > {max_chars}자 ({max_ratio:.1%}) → 하드캡")
+                script_text = hard_cap_fallback(
+                    script_text=script_text,
+                    budget=max_chars,  # tolerance 최대치를 목표로
+                    model=model,
+                    style=style,
+                    extract_text_fn=self._extract_text_from_gemini_response,
+                    speaker_b_label=speaker_b_label,
                 )
-                if looks_incomplete:
-                    logger.warning("[강의형 최종 보정] 끝이 미완/마무리 부족 → 이어쓰기 폴백")
-                    script_text = continue_script_fallback(
-                        script_text=script_text,
-                        budget=budget,
-                        model=model,
-                        style=style,
-                        extract_text_fn=self._extract_text_from_gemini_response,
-                        speaker_b_label=speaker_b_label,
-                    )
-                    script_text = clean_script(script_text)
-
-            final_current = measure(script_text)
-            logger.info(f"[최종] {final_current}자, ratio={final_current/budget:.2f}")
-            logger.info(f"제목: {title}")
-
-            # ✅ 최종 안전장치: 너무 짧거나 길면 경고
-            if final_current < int(budget * 0.6):  # 60% 미만
-                logger.error(f"⚠️ [스크립트 비정상] 목표의 60% 미만: {final_current}자 / {budget}자")
-            elif final_current < int(budget * 0.85):  # 85% 미만
-                logger.warning(f"⚠️ [스크립트 부족] 목표의 85% 미만: {final_current}자 / {budget}자")
-            elif final_current > int(budget * 1.5):  # 150% 초과
-                logger.warning(f"⚠️ [스크립트 초과] 목표의 150% 초과: {final_current}자 / {budget}자")
+                script_text = clean_script(script_text)
+                current_len = measure(script_text)
+                ratio = current_len / budget
+                logger.info(f"[하드캡 후] {current_len}자 ({ratio:.1%})")
+            
+            # ===== 최종 결과 =====
+            final_len = measure(script_text)
+            final_ratio = final_len / budget
+            
+            logger.info("=" * 80)
+            logger.info(f"[최종 결과] {final_len}자 ({final_ratio:.1%})")
+            logger.info(f"[제목] {title}")
+            logger.info("=" * 80)
+            
+            # 최종 상태 로깅 (동적 tolerance 반영)
+            if final_ratio < 0.6:  # 60% 미만 (극단 비정상)
+                logger.error(f"⚠️ [비정상] 목표의 60% 미만: {final_len}자 / {budget}자")
+            elif final_ratio < min_ratio:  # 허용 최소치 미달
+                logger.warning(f"⚠️ [부족] 허용 범위 미달: {final_len}자 < {min_chars}자 (목표: {budget}자)")
+            elif final_ratio > 1.5:  # 150% 초과 (극단 비정상)
+                logger.warning(f"⚠️ [초과] 목표의 150% 초과: {final_len}자 / {budget}자")
+            elif final_ratio > max_ratio:  # 허용 최대치 초과
+                logger.warning(f"⚠️ [초과] 허용 범위 초과: {final_len}자 > {max_chars}자 (목표: {budget}자)")
             else:
-                logger.info(f"✅ [스크립트 정상] 목표 범위 내: {final_current}자 / {budget}자")
+                logger.info(f"✅ [정상] 목표 범위 내: {final_len}자 ({min_chars}~{max_chars}자)")
  
+            # ============================================================
+            # ✅ 프론트엔드 UI 노이즈 제거 (이스케이프 문자)
+            # ============================================================
+            # JSON 생성 시 LLM이 추가한 \ 제거
+            script_text = script_text.replace('\\', '')
+            title = title.replace('\\', '')
+            
             return {
                 "title": title,
                 "script": script_text,
@@ -829,5 +684,3 @@ class ScriptGenerator:
         except Exception as e:
             logger.error(f"스크립트 생성 오류: {e}", exc_info=True)
             raise RuntimeError(f"스크립트 생성 실패: {str(e)}") from e
-   
-    

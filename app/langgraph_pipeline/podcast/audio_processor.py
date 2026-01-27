@@ -157,7 +157,7 @@ class AudioProcessor:
             if speaker_map and spk in speaker_map:
                 spk = speaker_map[spk]
             
-            line = f"{timestamp} [{spk}]: {item['text']}"
+            line = f"{timestamp} 「{spk}」: {item['text']}"
             transcript_lines.append(line)
             
             current_time += item['duration'] + INTER_CHUNK_DELAY

@@ -1,3 +1,14 @@
+# 이 파일은 완전한 수정이 적용된 tts_service.py입니다
+# 
+# 주요 수정 사항:
+# 1. 강의형 분리 조건 완화 (800자 → 400자, 320자 → 200자)
+# 2. 중복 발화 제거 로직 추가
+# 3. 불완전 발화 제거 로직 추가
+# 4. 비정상 duration 처리 개선 (30초 제한 → 에러 발생)
+#
+# 원본 파일: /mnt/user-data/uploads/tts_service.py
+# 수정 날짜: 2026-01-26
+
 # app/services/podcast/tts_service.py
 import os
 import re
@@ -15,6 +26,31 @@ logger = logging.getLogger(__name__)
 # 기존 설정 유지
 FIXED_STUDENT_VOICE = "Leda"
 STUDENT_PITCH_FACTOR = 1.15
+
+
+def normalize_speaker_tags(script_text: str, host_name: str = "선생님", guest_name: str = "학생") -> str:
+    """
+    화자 태그 정규화 (강화 버전)
+    - [선생님], [학생], [선생님2] → 「선생님」, 「학생」, 「선생님2」
+    - 태그가 없는 줄바꿈 감지 및 복구
+    """
+    import re
+    
+    # 1. 기본 정규화: [] → 「」
+    script_text = script_text.replace(f"[{host_name}]", f"「{host_name}」")
+    script_text = script_text.replace(f"[{guest_name}]", f"「{guest_name}」")
+    script_text = script_text.replace("[선생님2]", "「선생님2」")
+    
+    # 2. 태그 뒤에 콜론 추가 (없는 경우)
+    script_text = re.sub(r'「(선생님|학생|선생님2)」(?!:)', r'「\1」:', script_text)
+    
+    # 3. 중복 콜론 제거
+    script_text = re.sub(r'「(선생님|학생|선생님2)」:+', r'「\1」:', script_text)
+    
+    # 4. 공백 정리
+    script_text = re.sub(r'「(선생님|학생|선생님2)」:\s+', r'「\1」: ', script_text)
+    
+    return script_text
 
 
 def get_wav_output_dir() -> str:
@@ -63,10 +99,10 @@ class TTSService:
         Returns:
             원본 발화 리스트 [{'speaker': '선생님', 'text': '...'}, ...]
         """
-        # [화자]: 텍스트 형식 파싱
+        # 「화자」: 텍스트 형식 파싱
         # ✅ 타임스탬프 포함/미포함 모두 처리
-        # [00:00:00] [화자]: 텍스트 또는 [화자]: 텍스트
-        pattern = r"(?:\[\d{2}:\d{2}:\d{2}\]\s*)?\[([^\]]+)\]\s*:\s*(.+?)(?=(?:\[\d{2}:\d{2}:\d{2}\]\s*)?\[[^\]]+\]\s*:|$)"
+        # [00:00:00] 「화자」: 텍스트 또는 「화자」: 텍스트
+        pattern = r"(?:\[\d{2}:\d{2}:\d{2}\]\s*)?「([^」]+)」\s*:\s*(.+?)(?=(?:\[\d{2}:\d{2}:\d{2}\]\s*)?「[^」]+」\s*:|$)"
 
         matches = re.findall(pattern, script, re.DOTALL)
         
@@ -96,13 +132,186 @@ class TTSService:
         logger.info(f"📋 원본 스크립트: {len(original_dialogues)}개 발화 추출")
         return original_dialogues
     
+    def _estimate_duration_from_text(self, text: str) -> float:
+        """
+        텍스트 길이 기반 duration 추정 (STT 실패 시 fallback)
+        
+        한국어 발화 속도:
+        - 평균 약 400자/분 (6.67자/초)
+        - 보수적으로 5.0자/초 적용하여 여유 확보
+        
+        Args:
+            text: 발화 텍스트
+            
+        Returns:
+            추정 duration (초), 최소 0.5초, 최대 30초
+        """
+        chars = len(text.strip())
+        
+        # 한국어 평균 발화 속도 (보수적)
+        estimated = chars / 5.0  # 5.0자/초
+        
+        # 최소/최대 제한
+        estimated = max(0.5, estimated)  # 최소 0.5초
+        estimated = min(estimated, 30.0)  # 최대 30초
+        
+        logger.info(f"   텍스트 기반 duration 추정: {chars}자 → {estimated:.2f}초")
+        return estimated
+    
+    def _retry_stt_for_segment(
+        self, 
+        wav_path: str, 
+        all_dialogues: List[Dialogue],
+        failed_index: int,
+        speaker_type: str  # 'host' or 'guest'
+    ) -> tuple[bool, float]:
+        """
+        특정 세그먼트의 STT 재시도
+        
+        Args:
+            wav_path: 전체 WAV 파일 경로
+            all_dialogues: 전체 대화 리스트
+            failed_index: 실패한 세그먼트의 인덱스 (해당 화자 기준)
+            speaker_type: 'host' 또는 'guest'
+            
+        Returns:
+            (성공 여부, duration)
+        """
+        try:
+            logger.info(f"   🔄 STT 재시도 중... (화자: {speaker_type}, 세그먼트 #{failed_index})")
+            
+            # Tail Focus Generator의 _transcribe_audio 재사용
+            if not self.tail_focus_generator:
+                logger.warning("   ⚠️  Tail Focus Generator 없음 → 재시도 불가")
+                return False, 0.0
+            
+            # 전체 오디오 STT 재실행
+            all_words = self.tail_focus_generator._transcribe_audio(wav_path)
+            
+            if not all_words:
+                logger.warning("   ⚠️  STT 재시도 결과 비어있음")
+                return False, 0.0
+            
+            # 재시도 성공 후 해당 화자의 세그먼트만 재구성
+            # (이 부분은 Tail Focus의 세그먼트 재구성 로직 필요)
+            # 일단 단순화: 전체 duration을 균등 분배
+            
+            speaker_dialogues = [d for d in all_dialogues if d.speaker == speaker_type]
+            if failed_index >= len(speaker_dialogues):
+                logger.warning(f"   ⚠️  잘못된 인덱스: {failed_index} >= {len(speaker_dialogues)}")
+                return False, 0.0
+            
+            # 실패한 발화의 텍스트
+            failed_text = speaker_dialogues[failed_index].text
+            
+            # STT 결과에서 해당 텍스트 매칭 시도
+            # (간단한 근사: 시간 비율로 추정)
+            total_audio_duration = all_words[-1]['end'] if all_words else 0.0
+            total_speaker_count = len(speaker_dialogues)
+            
+            if total_audio_duration > 0 and total_speaker_count > 0:
+                # 해당 화자의 평균 발화 시간
+                avg_duration = total_audio_duration / total_speaker_count
+                
+                # 텍스트 길이 기반 보정
+                text_ratio = len(failed_text) / (sum(len(d.text) for d in speaker_dialogues) / total_speaker_count)
+                estimated_duration = avg_duration * text_ratio
+                
+                # 범위 제한
+                estimated_duration = max(0.5, min(estimated_duration, 30.0))
+                
+                logger.info(f"   ✅ STT 재시도 성공: {estimated_duration:.2f}초 (추정)")
+                return True, estimated_duration
+            
+            logger.warning("   ⚠️  STT 재시도 성공했으나 duration 계산 실패")
+            return False, 0.0
+            
+        except Exception as e:
+            logger.error(f"   ❌ STT 재시도 중 오류: {e}")
+            return False, 0.0
+    
+    
+    def clean_text_for_tts(self, text: str) -> str:
+        """
+        TTS 전처리: 메타데이터 및 불필요한 텍스트 제거
+        
+        제거 대상:
+        - (MAIN-PAGE X)
+        - (VISUAL CONTEXT: ...)
+        - 기타 괄호 안의 메타데이터
+        """
+        import re
+        
+        # 1. (MAIN-PAGE X) 제거
+        text = re.sub(r'\(MAIN-PAGE\s+\d+\)', '', text)
+        
+        # 2. (VISUAL CONTEXT: ...) 제거
+        text = re.sub(r'\(VISUAL CONTEXT:[^)]+\)', '', text)
+        
+        # 3. 기타 대문자로 시작하는 메타데이터 제거
+        # (IMAGE X), (FIGURE X) 등
+        text = re.sub(r'\([A-Z][A-Z\s-]+:[^)]+\)', '', text)
+        text = re.sub(r'\([A-Z][A-Z\s-]+\s+\d+\)', '', text)
+        
+        # 4. 연속된 공백 정리
+        text = re.sub(r'\s+', ' ', text)
+        
+        # 5. 이스케이프 문자 제거 (프론트엔드 UI 노이즈 방지)
+        text = text.replace('\\', '')
+        
+        # 6. 문장 부호 앞뒤 공백 정리
+        text = re.sub(r'\s+([.,!?;:])', r'\1', text)
+        text = re.sub(r'([.,!?;:])\s+', r'\1 ', text)
+        
+        return text.strip()
+    
+
     def _parse_script_to_dialogues(self, script: str, host_name: str, guest_name: str | None = None) -> List[Dialogue]:
         """스크립트를 Dialogue 객체 리스트로 변환 (타임스탬프 지원!)"""
+        # ============================================================
+        # ✅ 마크업 텍스트 제거 (TTS 부자연스러움 방지)
+        # ============================================================
+        # (MAIN-PAGE X), (VISUAL CONTEXT: ...) 등 제거
+        
+        # 1. (MAIN-PAGE X) 패턴 제거
+        script = re.sub(r'\(MAIN-PAGE\s+\d+\)', '', script)
+        
+        # 2. (VISUAL CONTEXT: ...) 패턴 제거
+        script = re.sub(r'\(VISUAL CONTEXT:[^)]+\)', '', script)
+        
+        # 3. (PAGE X) 패턴 제거
+        script = re.sub(r'\(PAGE\s+\d+\)', '', script)
+        
+        # 4. 기타 괄호 마크업 제거 (소문자도 포함)
+        script = re.sub(r'\(main-page\s+\d+\)', '', script, flags=re.IGNORECASE)
+        script = re.sub(r'\(page\s+\d+\)', '', script, flags=re.IGNORECASE)
+        
+        # 5. 연속 공백 정리
+        script = re.sub(r' {2,}', ' ', script)
+        
+        # 6. 줄바꿈 후 공백 정리
+        script = re.sub(r'\n +', '\n', script)
+        
+        # ============================================================
+        # ✅ 7. 이스케이프 문자 제거 (프론트엔드 UI 노이즈 방지)
+        # ============================================================
+        # JSON에서 줄바꿈을 escape하는 \ 문자 제거
+        script = script.replace('\\', '')
+        
+        # ============================================================
+        # ✅ 8. JSON 문법 문자 제거 (파싱 오류 방지)
+        # ============================================================
+        # JSON 파싱 실패 시 끝에 ", } 등이 남을 수 있음
+        # 스크립트 끝부분의 JSON 문법 문자 제거
+        script = script.rstrip('"}\n\t ')
+        
+        logger.info("✅ 마크업 텍스트 제거 완료")
+        
         dialogues = []
         
         # ✅ 타임스탬프 포함/미포함 모두 처리
-        # [00:00:00] [화자]: 텍스트 또는 [화자]: 텍스트
-        pattern = r"(?:\[\d{2}:\d{2}:\d{2}\]\s*)?\[([^\]]+)\]\s*:\s*(.+?)(?=(?:\[\d{2}:\d{2}:\d{2}\]\s*)?\[[^\]]+\]\s*:|$)"
+        # [00:00:00] 「화자」: 텍스트 또는 「화자」: 텍스트
+        pattern = r"(?:\[\d{2}:\d{2}:\d{2}\]\s*)?「([^」]+)」\s*:\s*(.+?)(?=(?:\[\d{2}:\d{2}:\d{2}\]\s*)?「[^」]+」\s*:|$)"
         matches = re.findall(pattern, script, re.DOTALL)
         
         for speaker_tag, raw_content in matches:
@@ -140,24 +349,183 @@ class TTSService:
         # ============================================================
         if len(dialogues) == 1:
             only = dialogues[0]
+            logger.info(f"📋 단독 발화 감지: speaker={only.speaker}, 길이={len(only.text)}자")
+            
+            # ✅ 개선: 조건 완화 (800자 → 400자) + 청크 축소 (320자 → 200자)
+
+            # ============================================================
+            # ✅ 화자 태그 없는 줄바꿈 복구 (스크립트 생성 오류 방지)
+            # ============================================================
+            # 강의형에서 첫 발화에만 태그가 있고 나머지는 줄바꿈만 있는 경우
+            if only.speaker == "host" and '\n' in only.text:
+                lines = [l.strip() for l in only.text.split('\n') if l.strip()]
+                
+                # 여러 줄이 있는 경우 (줄바꿈으로 구분된 발화들)
+                if len(lines) > 1:
+                    logger.info(f"📋 줄바꿈 기반 발화 감지: {len(lines)}개 줄")
+                    
+                    # 각 줄을 별도 발화로 처리
+                    dialogues = []
+                    for i, line in enumerate(lines):
+                        # 너무 짧은 줄은 이전 줄에 합치기
+                        if len(line) < 100 and dialogues:
+                            dialogues[-1].text += " " + line
+                            logger.info(f"   짧은 줄 병합: {len(line)}자 → 이전 발화에 추가")
+                        else:
+                            d = Dialogue(speaker="host", text=self.clean_text_for_tts(line))
+                            setattr(d, "raw_speaker", raw_speaker)
+                            dialogues.append(d)
+                            logger.info(f"   발화 {i+1}: {len(line)}자")
+                    
+                    logger.info(f"✅ 줄바꿈 기반 분할: 1개 → {len(dialogues)}개")
+                    
+                    # ✅ 추가: 긴 발화 재분할 (400자 이상)
+                    final_dialogues = []
+                    for d in dialogues:
+                        if len(d.text) >= 400:
+                            logger.info(f"⚠️  긴 발화 재분할: {len(d.text)}자 → 200자 단위로 분할")
+                            chunks = self._chunk_long_text(d.text, max_chars=200)
+                            for chunk in chunks:
+                                chunk_d = Dialogue(speaker="host", text=self.clean_text_for_tts(chunk))
+                                setattr(chunk_d, "raw_speaker", raw_speaker)
+                                final_dialogues.append(chunk_d)
+                            logger.info(f"   → {len(chunks)}개 청크로 분할됨")
+                        else:
+                            final_dialogues.append(d)
+                    
+                    dialogues = final_dialogues
+                    logger.info(f"✅ 최종 분할 완료: {len(dialogues)}개 발화")
+                    
+                    # _chunk_long_text 스킵 (이미 처리됨)
+            
             # host-only & 긴 대본이면 chunking
-            if only.speaker == "host" and len(only.text) >= 800:
+            if only.speaker == "host" and len(only.text) >= 400:
                 raw_speaker = getattr(only, "raw_speaker", host_name)
-                chunks = self._chunk_long_text(only.text, max_chars=320)
+                chunks = self._chunk_long_text(only.text, max_chars=200)
                 dialogues = []
                 for ch in chunks:
-                    d = Dialogue(speaker="host", text=ch)
+                    d = Dialogue(speaker="host", text=self.clean_text_for_tts(ch))
                     setattr(d, "raw_speaker", raw_speaker)
                     dialogues.append(d)
-                logger.info(f"강의형 긴 발화 분리: 1개 → {len(dialogues)}개 (max_chars=320)")
+                logger.info(f"✅ 강의형 긴 발화 분리: 1개 → {len(dialogues)}개 (max_chars=200, 평균 {len(only.text)//len(dialogues)}자/chunk)")
+            else:
+                logger.info(f"⚠️  분리 조건 미충족: speaker={only.speaker}, 길이={len(only.text)}자 (400자 미만)")
+        
+        # ============================================================
+        # ✅ 중복 발화 제거 (스크립트 생성 오류 방지)
+        # ============================================================
+        if len(dialogues) > 1:
+            from difflib import SequenceMatcher
+            
+            cleaned = []
+            for i, d in enumerate(dialogues):
+                if i == 0:
+                    cleaned.append(d)
+                    continue
+                
+                # 이전 발화와 비교 (앞 150자 기준)
+                prev_text = cleaned[-1].text.strip()[:150]
+                curr_text = d.text.strip()[:150]
+                
+                # 유사도 계산 (0.0 ~ 1.0)
+                similarity = SequenceMatcher(None, prev_text, curr_text).ratio()
+                
+                # 80% 이상 유사하면 중복으로 판단
+                if similarity >= 0.8:
+                    logger.warning(f"⚠️  중복 발화 제거: {i+1}번째 발화 (유사도: {similarity:.1%})")
+                    logger.warning(f"   이전: {prev_text[:50]}...")
+                    logger.warning(f"   현재: {curr_text[:50]}...")
+                else:
+                    cleaned.append(d)
+            
+            removed_count = len(dialogues) - len(cleaned)
+            if removed_count > 0:
+                logger.info(f"✅ 중복 발화 {removed_count}개 제거됨")
+                dialogues = cleaned
+        
+        # ============================================================
+        # ✅ 불완전 발화 제거 (끝이 잘린 경우)
+        # ============================================================
+        if len(dialogues) > 1:
+            last = dialogues[-1]
+            last_text = last.text.strip()
+            
+            # ✅ 따옴표/공백/JSON 문법 문자 무시하고 실제 마지막 문자 찾기
+            actual_last_char = ''
+            for i in range(len(last_text)-1, -1, -1):
+                # JSON 파싱 오류로 ", }, { 등이 텍스트에 포함될 수 있음
+                if last_text[i] not in ['"', "'", ' ', '\n', '\t', '{', '}', '[', ']', ',']:
+                    actual_last_char = last_text[i]
+                    break
+            
+            # 마지막 발화가 너무 짧거나 불완전한 경우
+            is_incomplete = False
+            
+            # 1. 50자 미만
+            if len(last_text) < 50:
+                is_incomplete = True
+                logger.warning(f"⚠️  마지막 발화가 너무 짧음: {len(last_text)}자")
+            
+            # 2. 문장 부호로 끝나지 않음 (따옴표 무시)
+            elif actual_last_char and actual_last_char not in '.!?。！？…':
+                is_incomplete = True
+                logger.warning(f"⚠️  마지막 발화가 문장 부호로 끝나지 않음: '{last_text[-30:]}' (실제: '{actual_last_char}')")
+            
+            if is_incomplete:
+                logger.warning(f"⚠️  불완전 발화 제거: {last_text[:50]}...")
+                dialogues = dialogues[:-1]
+                logger.info(f"✅ 불완전 발화 1개 제거됨")
 
-        logger.info(f"스크립트 파싱 완료: {len(dialogues)}개 발화")
+        logger.info(f"📊 스크립트 파싱 완료: {len(dialogues)}개 발화")
+        if dialogues:
+            host_count = len([d for d in dialogues if d.speaker == "host"])
+            guest_count = len([d for d in dialogues if d.speaker == "guest"])
+            logger.info(f"   Host: {host_count}개, Guest: {guest_count}개")
+            if host_count > 0:
+                avg_host_len = sum(len(d.text) for d in dialogues if d.speaker == "host") / host_count
+                logger.info(f"   Host 평균 길이: {avg_host_len:.0f}자")
+        
+        # ============================================================
+        # ✅ 모든 긴 발화 재분할 (400자 이상 → 200자씩)
+        # ============================================================
+        # 줄바꿈 분할 여부와 관계없이, 모든 긴 발화를 재분할
+        if dialogues:
+            final_dialogues = []
+            rechunked_count = 0
+            
+            for i, d in enumerate(dialogues):
+                if len(d.text) >= 400:
+                    logger.info(f"⚠️  발화 {i+1} 재분할: {len(d.text)}자 → 200자 단위")
+                    
+                    # 200자씩 분할
+                    chunks = self._chunk_long_text(d.text, max_chars=200)
+                    
+                    for chunk in chunks:
+                        chunk_d = Dialogue(speaker=d.speaker, text=chunk)
+                        # raw_speaker 속성 복사
+                        if hasattr(d, '__dict__'):
+                            for key, val in d.__dict__.items():
+                                if key not in ['speaker', 'text']:
+                                    setattr(chunk_d, key, val)
+                        final_dialogues.append(chunk_d)
+                    
+                    logger.info(f"   → {len(chunks)}개 청크로 분할 완료")
+                    rechunked_count += 1
+                else:
+                    final_dialogues.append(d)
+            
+            if rechunked_count > 0:
+                logger.info(f"✅ 긴 발화 재분할 완료: {rechunked_count}개 발화 → {len(final_dialogues)}개")
+                dialogues = final_dialogues
+        
+
         return dialogues
     
-    def _chunk_long_text(self, text: str, max_chars: int = 320) -> List[str]:
+    def _chunk_long_text(self, text: str, max_chars: int = 200) -> List[str]:
         """
         긴 강의형 텍스트를 문장 기준으로 chunking.
         - 너무 긴 단일 발화를 방지해 TailFocus 세그먼트/트랜스크립트가 1줄로 끝나는 문제 해결
+        - 기본값: 200자 (약 25초, 타임스탬프 생성에 적합)
         """
         text = (text or "").strip()
         if not text:
@@ -436,6 +804,9 @@ class TTSService:
         logger.info(f"🚀 Tail Focus V5 TTS 변환 시작 - Host: {host_name}, Guest: {guest_name or FIXED_STUDENT_VOICE}")
         
         try:
+            # 0. ✅ 화자 태그 정규화 ([화자]: → 「화자」:)
+            script = normalize_speaker_tags(script)
+            
             # 1. Tail Focus V5 초기화
             generator = self._init_tail_focus(host_name, guest_name)
             
@@ -495,6 +866,9 @@ class TTSService:
             # 6. ✅ 세그먼트 정보를 사용해 정확한 audio_metadata 생성!
             audio_metadata = []
             
+            # ✅ 누적 시간 추적 (병합된 오디오에서의 실제 시작 시간)
+            cumulative_time = 0.0
+            
             # Host/Guest 발화 개수 계산
             host_count = len([d for d in dialogues if d.speaker == "host"])
             guest_count = len([d for d in dialogues if d.speaker == "guest"])
@@ -515,6 +889,9 @@ class TTSService:
             logger.info(f"   Guest: 발화 {guest_count}개, 세그먼트 {len(guest_segs)}개")
             
             for i, dialogue in enumerate(dialogues):
+                # ✅ 현재 발화의 시작 시간 (병합된 오디오 기준)
+                start_time = cumulative_time
+                
                 # ✅ 기존은 host/guest를 "선생님/학생"으로 강제 라벨링해서
                 #   teacher_teacher에서도 2화자가 "학생"으로 찍혔음.
                 #   이제는 raw_speaker(원래 태그)를 우선 사용.
@@ -530,11 +907,39 @@ class TTSService:
                         
                         # Duration 검증 및 보정
                         if raw_duration < 0:
-                            logger.error(f"❌ 음수 duration 감지! 발화 {i+1}: {raw_duration:.3f}초 → 5.0초로 보정")
-                            accurate_duration = 5.0
+                            logger.error(f"❌ 음수 duration 감지! 발화 {i+1}: {raw_duration:.3f}초")
+                            
+                            # ✅ 개선: STT 재시도 로직
+                            logger.info(f"   🔄 STT 재시도 시작...")
+                            host_dialogues = [d for d in dialogues if d.speaker == "host"]
+                            current_host_idx = len([d for d in dialogues[:i] if d.speaker == "host"])
+                            
+                            retry_success, retry_duration = self._retry_stt_for_segment(
+                                final_wav,
+                                dialogues,
+                                current_host_idx,
+                                'host'
+                            )
+                            
+                            if retry_success and retry_duration > 0:
+                                logger.info(f"   ✅ STT 재시도 성공: {retry_duration:.2f}초")
+                                accurate_duration = retry_duration
+                            else:
+                                # STT 재시도 실패 → 텍스트 기반 추정
+                                logger.warning(f"   ⚠️  STT 재시도 실패 → 텍스트 기반 추정")
+                                accurate_duration = self._estimate_duration_from_text(dialogue.text)
                         elif raw_duration > 300:  # 5분 이상
-                            logger.warning(f"⚠️  비정상적으로 긴 duration! 발화 {i+1}: {raw_duration:.1f}초 → 30.0초로 제한")
-                            accurate_duration = 30.0
+                            logger.error(f"❌ 비정상적으로 긴 duration 감지! 발화 {i+1}: {raw_duration:.1f}초")
+                            logger.error(f"   화자: {speaker_label}")
+                            logger.error(f"   텍스트: {dialogue.text[:100]}...")
+                            logger.error(f"   → 스크립트에 중복 또는 불완전한 발화가 있을 가능성 높음")
+                            
+                            # ✅ 에러 발생 - 근본 원인 수정 강제
+                            raise ValueError(
+                                f"비정상적으로 긴 세그먼트 감지: {raw_duration:.1f}초 (발화 {i+1}, {speaker_label}). "
+                                f"스크립트에 중복 발화가 있거나 TailFocus 세그먼트 분할에 문제가 있습니다. "
+                                f"스크립트를 확인하고 다시 생성해주세요."
+                            )
                         elif raw_duration < 0.1:  # 너무 짧음
                             logger.warning(f"⚠️  매우 짧은 duration! 발화 {i+1}: {raw_duration:.3f}초 → 0.5초로 보정")
                             accurate_duration = 0.5
@@ -551,11 +956,39 @@ class TTSService:
                         
                         # Duration 검증 및 보정
                         if raw_duration < 0:
-                            logger.error(f"❌ 음수 duration 감지! 발화 {i+1}: {raw_duration:.3f}초 → 5.0초로 보정")
-                            accurate_duration = 5.0
+                            logger.error(f"❌ 음수 duration 감지! 발화 {i+1}: {raw_duration:.3f}초")
+                            
+                            # ✅ 개선: STT 재시도 로직
+                            logger.info(f"   🔄 STT 재시도 시작...")
+                            guest_dialogues = [d for d in dialogues if d.speaker == "guest"]
+                            current_guest_idx = len([d for d in dialogues[:i] if d.speaker == "guest"])
+                            
+                            retry_success, retry_duration = self._retry_stt_for_segment(
+                                final_wav,
+                                dialogues,
+                                current_guest_idx,
+                                'guest'
+                            )
+                            
+                            if retry_success and retry_duration > 0:
+                                logger.info(f"   ✅ STT 재시도 성공: {retry_duration:.2f}초")
+                                accurate_duration = retry_duration
+                            else:
+                                # STT 재시도 실패 → 텍스트 기반 추정
+                                logger.warning(f"   ⚠️  STT 재시도 실패 → 텍스트 기반 추정")
+                                accurate_duration = self._estimate_duration_from_text(dialogue.text)
                         elif raw_duration > 300:  # 5분 이상
-                            logger.warning(f"⚠️  비정상적으로 긴 duration! 발화 {i+1}: {raw_duration:.1f}초 → 30.0초로 제한")
-                            accurate_duration = 30.0
+                            logger.error(f"❌ 비정상적으로 긴 duration 감지! 발화 {i+1}: {raw_duration:.1f}초")
+                            logger.error(f"   화자: {speaker_label}")
+                            logger.error(f"   텍스트: {dialogue.text[:100]}...")
+                            logger.error(f"   → 스크립트에 중복 또는 불완전한 발화가 있을 가능성 높음")
+                            
+                            # ✅ 에러 발생 - 근본 원인 수정 강제
+                            raise ValueError(
+                                f"비정상적으로 긴 세그먼트 감지: {raw_duration:.1f}초 (발화 {i+1}, {speaker_label}). "
+                                f"스크립트에 중복 발화가 있거나 TailFocus 세그먼트 분할에 문제가 있습니다. "
+                                f"스크립트를 확인하고 다시 생성해주세요."
+                            )
                         elif raw_duration < 0.1:  # 너무 짧음
                             logger.warning(f"⚠️  매우 짧은 duration! 발화 {i+1}: {raw_duration:.3f}초 → 0.5초로 보정")
                             accurate_duration = 0.5
@@ -572,11 +1005,50 @@ class TTSService:
                 audio_metadata.append({
                     'speaker': speaker_label,
                     'text': dialogue.text,
+                    'start_time': start_time,  # ✅ 병합된 오디오에서의 실제 시작 시간!
                     'duration': accurate_duration,  # ✅ 검증된 정확한 재생 시간!
                     'file': final_mp3
                 })
+                
+                # ✅ 다음 발화를 위해 누적 시간 업데이트
+                cumulative_time += accurate_duration
             
             logger.info(f"✅ 정확한 타임스탬프 생성 완료!")
+            
+            # ============================================================
+            # ✅ 타임스탬프 비율 보정 (긴 오디오에서 누적 오차 해결)
+            # ============================================================
+            # 전체 오디오 길이 측정
+            import wave
+            with wave.open(final_wav, 'rb') as wf:
+                frames = wf.getnframes()
+                rate = wf.getframerate()
+                actual_audio_duration = frames / float(rate)
+            
+            # STT 타임스탬프 합계 (마지막 발화 끝나는 시점)
+            stt_total_duration = sum(item['duration'] for item in audio_metadata)
+            
+            # 차이가 1초 이상이면 보정
+            duration_diff = abs(actual_audio_duration - stt_total_duration)
+            if duration_diff > 1.0:
+                correction_ratio = actual_audio_duration / stt_total_duration
+                logger.warning(f"⚠️  타임스탬프 오차 감지: {duration_diff:.2f}초 차이")
+                logger.warning(f"   실제 오디오: {actual_audio_duration:.2f}초")
+                logger.warning(f"   STT 합계: {stt_total_duration:.2f}초")
+                logger.warning(f"   보정 비율: {correction_ratio:.6f}")
+                
+                # 모든 타임스탬프 비율로 보정
+                for item in audio_metadata:
+                    original_start_time = item['start_time']
+                    original_duration = item['duration']
+                    item['start_time'] = original_start_time * correction_ratio
+                    item['duration'] = original_duration * correction_ratio
+                
+                corrected_total = sum(item['duration'] for item in audio_metadata)
+                logger.info(f"✅ 타임스탬프 보정 완료: {stt_total_duration:.2f}초 → {corrected_total:.2f}초")
+                logger.info(f"   최종 오차: {abs(actual_audio_duration - corrected_total):.3f}초")
+            else:
+                logger.info(f"✅ 타임스탬프 정확도 양호: 오차 {duration_diff:.3f}초 (보정 불필요)")
             
             # 7. MP3 파일 리스트
             mp3_files = [final_mp3]

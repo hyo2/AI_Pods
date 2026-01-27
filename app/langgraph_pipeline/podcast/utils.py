@@ -128,11 +128,11 @@ def estimate_korean_chars_for_budget(text: str) -> int:
     """
     길이 예산 계산용 글자수 추정.
     - 타임스탬프 제거
-    - [선생님]/[학생] 화자 태그 제거
+    - 「선생님」/「학생」 화자 태그 제거
     - 공백/개행 제거 후 길이 측정
     """
     text = re.sub(r"\[\d{2}:\d{2}:\d{2}\]\s*", "", text)
-    text = re.sub(r"^\[(선생님|학생)\]\s*:?\s*", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^「(선생님|학생)」\s*:?\s*", "", text, flags=re.MULTILINE)
     text = re.sub(r"\s+", "", text)
     return len(text)
 

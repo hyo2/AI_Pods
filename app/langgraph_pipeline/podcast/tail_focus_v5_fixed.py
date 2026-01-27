@@ -1,16 +1,24 @@
 """
-Tail Focus V5 - 글자 수 + 문장 개수 동시 제한 최종 버전
-150개+ 발화 대응: 3000자 또는 50개 중 먼저 도달 시 배치 분할
+Tail Focus V5 - 글자 수 + 문장 개수 동시 제한 최종 버전 (중복 방지 개선!)
+150개+ 발화 대응: 2500자 또는 50개 중 먼저 도달 시 배치 분할
 
 개선사항:
 - MAX_BATCH_SIZE = 50 (문장 개수 제한)
-- MAX_BATCH_CHARS = 3000 (글자 수 제한)
+- MAX_BATCH_CHARS = 2500 (글자 수 제한, 3000 → 2500 안정성 향상)
 - 둘 중 먼저 도달하는 조건으로 배치 분할
 - 문장 완전성 100% 보장 (절대 중간에 안 자름!)
 - 선생님 긴 발화 안전하게 처리
+
+✅ 중복 방지 개선 (v5.1):
+- Tail 길이: 3단어 → 5-7단어 (동적 조정)
+- Search Window: -2~+5초 → -1~+2초 (범위 축소)
+- 중복 문구 필터링: 동일 STT 문구 재사용 방지
+- 시간 우선 정책: 가중치 30% → 50% (시간상 가까운 후보 우선)
+- 시간 범위 필터링: 예상 시간 ±3초 이내만 고려
 """
 
 import os
+from venv import logger
 import wave
 import json
 import requests
@@ -43,7 +51,7 @@ class TailFocusV5Generator:
     
     # ✅ 배치 제한 (둘 중 먼저 도달하면 분할!)
     MAX_BATCH_SIZE = 50      # 최대 문장 개수
-    MAX_BATCH_CHARS = 3000   # 최대 글자 수
+    MAX_BATCH_CHARS = 2500   # 최대 글자 수 (3000 → 2500, 안정성 향상)
     
     def __init__(
         self,
@@ -169,7 +177,7 @@ class TailFocusV5Generator:
         
         조건:
         - MAX_BATCH_SIZE (50개) 도달 → 분할
-        - MAX_BATCH_CHARS (3000자) 초과 예상 → 분할
+        - MAX_BATCH_CHARS (2500자) 초과 예상 → 분할 (3000 → 2500 개선)
         """
         batches = []
         current_batch = []
@@ -442,16 +450,29 @@ class TailFocusV5Generator:
         search_start_idx: int,
         expected_start_time: float
     ) -> Tuple[bool, float, str, float, int]:
-        """후보군 방식으로 꼬리 찾기"""
-        tail_words = text.strip().split()[-3:]
+        """후보군 방식으로 꼬리 찾기 (중복 방지 개선!)"""
+        
+        # ✅ 개선: Tail 길이 증가 (3단어 → 5-7단어)
+        # - 짧은 패턴("2단계") 중복 매칭 방지
+        # - 텍스트 길이에 따라 동적 조정
+        words = text.strip().split()
+        tail_len = min(7, max(5, len(words) // 3))  # 최소 5, 최대 7단어
+        tail_words = words[-tail_len:]
+        
         tail_raw = "".join(tail_words)
         target_tail = self._normalize_text(tail_raw)
         
         candidates = []
         
+        # ✅ 개선: Search Window 축소 (-2~+5초 → -1~+2초)
+        # - 다음 발화까지 검색 범위 확장 방지
         estimated_duration = len(text) * 0.20
-        search_window_start = max(expected_start_time - 2.0, 0)
-        search_window_end = expected_start_time + estimated_duration + 5.0
+        search_window_start = max(expected_start_time - 1.0, 0)  # 2초 → 1초
+        search_window_end = expected_start_time + estimated_duration + 2.0  # 5초 → 2초
+        
+        # ✅ 개선: 중복 문구 필터링
+        # - 동일한 STT 문구 재사용 방지
+        seen_phrases = set()
         
         for j in range(len(all_words)):
             if all_words[j]['start'] < search_window_start:
@@ -459,7 +480,7 @@ class TailFocusV5Generator:
             if all_words[j]['start'] > search_window_end:
                 break
             
-            for window_size in [2, 3, 4, 5, 6, 7, 8]:
+            for window_size in [2, 3, 4, 5, 6, 7, 8, 9, 10]:  # 윈도우 크기 확장 (tail 길이 증가 대응)
                 if j + window_size > len(all_words):
                     continue
                 
@@ -468,25 +489,39 @@ class TailFocusV5Generator:
                 ])
                 stt_phrase_norm = self._normalize_text(stt_phrase_raw)
                 
+                # ✅ 중복 방지: 이미 사용한 문구는 스킵
+                if stt_phrase_norm in seen_phrases:
+                    continue
+                
                 score = difflib.SequenceMatcher(
                     None, target_tail, stt_phrase_norm
                 ).ratio()
                 
                 if score > 0.50:
+                    time_diff = abs(all_words[j]['start'] - expected_start_time)
+                    
+                    # ✅ 시간 범위 필터링: 너무 먼 후보는 제외
+                    if time_diff > estimated_duration + 3.0:  # 예상 시간 ± 3초 이내만
+                        continue
+                    
+                    seen_phrases.add(stt_phrase_norm)  # 사용 기록
+                    
                     candidates.append({
                         "score": score,
                         "end_time": all_words[j+window_size-1]['end'],
                         "phrase": stt_phrase_raw,
                         "idx": j + window_size,
-                        "time_diff": abs(all_words[j]['start'] - expected_start_time)
+                        "time_diff": time_diff
                     })
         
         if not candidates:
             return False, 0.0, "", 0.0, search_start_idx
         
+        # ✅ 개선: 시간 우선 정책 강화
+        # - 시간 가중치: 30% → 50% (시간상 가까운 후보 우선)
         for c in candidates:
             time_score = 1.0 / (1.0 + c['time_diff'])
-            c['combined_score'] = c['score'] * 0.7 + time_score * 0.3
+            c['combined_score'] = c['score'] * 0.5 + time_score * 0.5  # 50:50
         
         candidates.sort(key=lambda x: -x['combined_score'])
         
@@ -579,6 +614,37 @@ class TailFocusV5Generator:
         
         print(f"  ✅ 최종 세그먼트: {len(segments)}개 (텍스트: {len(texts)}개)")
         
+        # ============================================================
+        # ✅ 세그먼트 검증 (비정상 duration 감지)
+        # ============================================================
+        MAX_SEGMENT_DURATION = 60.0  # 60초 초과 시 경고
+
+        for i, seg in enumerate(segments):
+            duration = seg['end'] - seg['start']
+            
+            # 비정상적으로 긴 세그먼트 감지
+            if duration > MAX_SEGMENT_DURATION:
+                logger.error(f"❌ 비정상 세그먼트 감지!")
+                logger.error(f"   세그먼트 {i+1}: {duration:.1f}초 (최대: {MAX_SEGMENT_DURATION}초)")
+                logger.error(f"   텍스트: {texts[i][:100] if i < len(texts) else 'N/A'}...")
+                
+                # 옵션 1: 경고만 (현재)
+                logger.warning(f"⚠️  비정상 세그먼트를 그대로 사용합니다 (수동 확인 필요)")
+                
+                # 옵션 2: 에러 발생 (권장)
+                # raise ValueError(
+                #     f"비정상적으로 긴 세그먼트 감지: {duration:.1f}초 > {MAX_SEGMENT_DURATION}초. "
+                #     f"스크립트에 중복 또는 불완전한 발화가 있을 수 있습니다."
+                # )
+            
+            # 음수 duration도 체크
+            if duration < 0:
+                logger.error(f"❌ 음수 세그먼트 감지!")
+                logger.error(f"   세그먼트 {i+1}: {duration:.1f}초")
+                raise ValueError(f"음수 duration 감지: {duration:.1f}초")
+
+        logger.info(f"✅ 세그먼트 검증 완료: {len(segments)}개 세그먼트 (최대: {max([s['end']-s['start'] for s in segments]):.1f}초)")
+
         return segments
     
     # =========================================================================

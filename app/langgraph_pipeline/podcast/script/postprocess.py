@@ -2,10 +2,56 @@
 import re
 import logging
 from typing import Dict
+from difflib import SequenceMatcher
 from ..utils import estimate_korean_chars_for_budget
 from .cleanup import clean_script
 
 logger = logging.getLogger(__name__)
+
+# =========================
+# ✅ 스크립트 끊김 감지 함수
+# =========================
+
+def is_script_truncated(script: str) -> tuple[bool, str]:
+    """
+    스크립트가 끊겼는지 확인 (완전성 체크 강화)
+    
+    Returns:
+        (is_truncated, reason)
+    """
+    script = script.strip()
+    
+    # 기본 체크
+    if not script:
+        return True, "빈 스크립트"
+    
+    # 마지막 줄 확인
+    lines = [l for l in script.split('\n') if l.strip()]
+    if not lines:
+        return True, "유효한 줄 없음"
+    
+    last_line = lines[-1].strip()
+    
+    # 1. 화자 태그로 시작하는데 내용 없음
+    if last_line.startswith(('「', '[')):
+        # 「선생님」: 또는 [선생님]:
+        if ':' in last_line:
+            content_after_colon = last_line.split(':', 1)[-1].strip()
+            if len(content_after_colon) < 10:
+                return True, "마지막 발화 내용 없음"
+    
+    # 2. 문장 부호로 끝나지 않음
+    if last_line and not last_line[-1] in '.!?。！？…':
+        return True, f"문장 부호 없음: '{last_line[-20:]}'"
+    
+    # 3. 마지막 발화가 너무 짧음 (화자 태그 제외)
+    # 화자 태그 제거 후 길이 체크
+    content_only = re.sub(r'^(\[|「)[^\]」]+(\]|」)\s*:\s*', '', last_line)
+    if len(content_only) < 50:
+        return True, f"마지막 발화 너무 짧음: {len(content_only)}자"
+    
+    return False, ""
+
 
 # =========================
 # ✅ 비완결성(하드캡/압축/이어쓰기) 꼬리 제거 유틸
@@ -15,7 +61,7 @@ logger = logging.getLogger(__name__)
 
 def _split_tag(line: str) -> tuple[str, str]:
     """
-    '[선생님]:' 또는 '[학생]:' 태그 분리
+    '「선생님」:' 또는 '「학생」:' 태그 분리
     """
     m = re.match(r"^(\[(?:선생님|학생|선생님2)\]:)\s*(.*)$", line.strip())
     if not m:
@@ -35,7 +81,7 @@ def _is_teacher_reaction_only(line: str) -> bool:
     '오 좋은 질문이에요.' 처럼 답이 없는 리액션-only 선생님 라인 감지
     """
     tag, body = _split_tag(line)
-    if tag != "[선생님]:":
+    if tag != "「선생님」:":
         return False
     if not body:
         return True
@@ -90,16 +136,16 @@ def _sanitize_trailing_lines(lines: list[str], is_dialogue: bool) -> list[str]:
     last = out[-1]
 
     if is_dialogue:
-        # 태그 정규화(혹시 [선생님] 형태로 들어오면 [선생님]: 로 맞춤)
-        if last.startswith("[선생님]") and "[선생님]:" not in last:
-            last = last.replace("[선생님]", "[선생님]:", 1)
-        if last.startswith("[학생]") and "[학생]:" not in last:
-            last = last.replace("[학생]", "[학생]:", 1)
-        if last.startswith("[선생님2]") and "[선생님2]:" not in last:
-            last = last.replace("[선생님2]", "[선생님2]:", 1)
+        # 태그 정규화(혹시 「선생님」 형태로 들어오면 「선생님」: 로 맞춤)
+        if last.startswith("「선생님」") and "「선생님」:" not in last:
+            last = last.replace("「선생님」", "「선생님」:", 1)
+        if last.startswith("「학생」") and "「학생」:" not in last:
+            last = last.replace("「학생」", "「학생」:", 1)
+        if last.startswith("「선생님2」") and "「선생님2」:" not in last:
+            last = last.replace("「선생님2」", "「선생님2」:", 1)
 
         # 마지막이 선생님 발화인 경우에만 처리(문제의 대부분이 여기서 발생)
-        if last.startswith("[선생님]:"):
+        if last.startswith("「선생님」:"):
             # 1) 리액션-only면 통째로 제거(답은 클로징이 하게)
             if _is_teacher_reaction_only(last):
                 out.pop()
@@ -110,7 +156,7 @@ def _sanitize_trailing_lines(lines: list[str], is_dialogue: bool) -> list[str]:
             trimmed = _trim_to_last_terminal(body)
 
             if trimmed:
-                out[-1] = f"[선생님]: {trimmed}"
+                out[-1] = f"「선생님」: {trimmed}"
             else:
                 # 완결 문장이 전혀 없으면 제거 → 클로징이 답변/정리 담당
                 out.pop()
@@ -135,16 +181,16 @@ def get_default_closing(is_dialogue: bool, last_speaker: str = None, speaker_b_l
     if is_dialogue:
         if last_speaker == "student" and speaker_b_label == "학생":
             return (
-                "[선생님]: 네, 오늘 배운 핵심 내용들을 잘 복습하시면 큰 도움이 될 거예요. "
+                "「선생님」: 네, 오늘 배운 핵심 내용들을 잘 복습하시면 큰 도움이 될 거예요. "
                 "궁금한 점이 있으면 언제든 질문해 주시고, 다음 시간에 또 뵙겠습니다. 수고하셨습니다!"
             )
         return (
-            f"[{speaker_b_label}]: 오늘 정말 많은 것을 배웠습니다. 감사합니다!\n"
-            "[선생님]: 네, 잘 이해하셨네요. 오늘 배운 내용을 실습해보시면서 더 깊이 있게 공부해 보시기 바랍니다. "
+            f"「{speaker_b_label}」: 오늘 정말 많은 것을 배웠습니다. 감사합니다!\n"
+            "「선생님」: 네, 잘 이해하셨네요. 오늘 배운 내용을 실습해보시면서 더 깊이 있게 공부해 보시기 바랍니다. "
             "다음 시간에 또 뵙겠습니다. 수고하셨습니다!"
         )
     return (
-        "[선생님]: 오늘 학습한 내용이 여러분의 이해에 도움이 되었기를 바랍니다. "
+        "「선생님」: 오늘 학습한 내용이 여러분의 이해에 도움이 되었기를 바랍니다. "
         "핵심 개념들을 잘 정리하시고, 실제로 적용해 보면서 학습을 이어가시기 바랍니다. "
         "다음 시간에 뵙겠습니다. 감사합니다!"
     )
@@ -181,13 +227,13 @@ def hard_cap_fallback(
         test_text = (accumulated + "\n" + line).strip()
         current_len = estimate_korean_chars_for_budget(test_text)
 
-        if re.match(r"^\[선생님\]", line) or re.match(r"^\[선생님2\]", line):
+        if re.match(r"^「선생님」", line) or re.match(r"^「선생님2」", line):
             teacher_count += 1
-        elif re.match(r"^\[학생\]", line):
+        elif re.match(r"^「학생」", line):
             student_count += 1
 
         if current_len > target_cut:
-            if re.match(r"^\[(선생님|선생님2|학생)\]", line):
+            if re.match(r"^「(선생님|선생님2|학생)」", line):
                 break
             remaining_budget = target_cut - estimate_korean_chars_for_budget(accumulated)
             if remaining_budget > 50:
@@ -206,6 +252,30 @@ def hard_cap_fallback(
         accumulated = test_text
 
     # ✅ 꼬리 비완결성 보정(특히 '오 좋은 질문이에요'만 남는 케이스 제거)
+    
+    # ✅ 추가 검증: 마지막 발화가 불완전하면 제거
+    if cut_lines:
+        last_line = cut_lines[-1].strip()
+        
+        # 화자 태그 제거
+        content_only = re.sub(r'^(\[|「)[^\]」]+(\]|」)\s*:\s*', '', last_line)
+        
+        # 불완전한 발화 제거 조건
+        is_incomplete = False
+        
+        # 1. 내용이 50자 미만
+        if len(content_only) < 50:
+            is_incomplete = True
+            logger.info(f"[하드캡] 마지막 발화 너무 짧음: {len(content_only)}자 → 제거")
+        
+        # 2. 문장 부호로 끝나지 않음
+        elif content_only and not content_only[-1] in '.!?。！？…':
+            is_incomplete = True
+            logger.info(f"[하드캡] 마지막 발화 불완전: '{content_only[-20:]}' → 제거")
+        
+        if is_incomplete:
+            cut_lines = cut_lines[:-1]
+    
     cut_lines = _sanitize_trailing_lines(cut_lines, is_dialogue=is_dialogue)
     truncated = "\n".join(cut_lines).strip()
     truncated_len = estimate_korean_chars_for_budget(truncated)
@@ -213,10 +283,10 @@ def hard_cap_fallback(
     last_speaker = None
     if is_dialogue:
         for line in reversed(cut_lines):
-            if re.match(r"^\[선생님\]", line) or re.match(r"^\[선생님2\]", line):
+            if re.match(r"^「선생님」", line) or re.match(r"^「선생님2」", line):
                 last_speaker = "teacher"
                 break
-            if re.match(r"^\[학생\]", line):
+            if re.match(r"^「학생」", line):
                 last_speaker = "student"
                 break
         logger.info(f"[하드캡] {truncated_len}자 / 선생님:{teacher_count} / 학생:{student_count} / 마지막:{last_speaker}")
@@ -225,11 +295,11 @@ def hard_cap_fallback(
     last_b_q = None
     if is_dialogue:
         for line in reversed(cut_lines):
-            if line.startswith(f"[{speaker_b_label}]"):
+            if line.startswith(f"「{speaker_b_label}」"):
                 # 너무 짧은 맞장구는 제외
                 normalized = line
-                if f"[{speaker_b_label}]:" not in normalized and normalized.startswith(f"[{speaker_b_label}]"):
-                    normalized = normalized.replace(f"[{speaker_b_label}]", f"[{speaker_b_label}]:", 1)
+                if f"「{speaker_b_label}」:" not in normalized and normalized.startswith(f"「{speaker_b_label}」"):
+                    normalized = normalized.replace(f"「{speaker_b_label}」", f"「{speaker_b_label}」:", 1)
                 _, body = _split_tag(normalized)
                 if len(body) >= 8:
                     last_b_q = line.strip()
@@ -237,27 +307,51 @@ def hard_cap_fallback(
 
     remaining_budget = max(0, budget - truncated_len)
 
+    # ✅ 전체 내용 요약 생성 (클로징 품질 향상)
+    summary = ""
+    if is_dialogue and truncated_len > 1000:
+        summary_prompt = f"""
+다음 팟캐스트 대화의 핵심 내용을 2-3문장으로 간단히 요약하세요.
+주요 개념과 결론만 포함하세요.
+
+[대화 전체]
+{truncated}
+
+[핵심 요약 (2-3문장)]
+""".strip()
+        try:
+            summary_resp = model.generate_content(
+                summary_prompt,
+                generation_config={"max_output_tokens": 512, "temperature": 0.2}
+            )
+            summary = extract_text_fn(summary_resp).strip()
+            logger.info(f"[하드캡] 전체 요약 생성 ({len(summary)}자)")
+        except Exception as e:
+            logger.warning(f"[하드캡] 요약 생성 실패: {e}")
+            summary = ""
+
+
     if is_dialogue:
         closing_prompt = f"""
     다음은 대화형 팟캐스트의 일부입니다. 이 대화를 자연스럽고 완결되게 마무리하세요.
 
     **CRITICAL - 화자 태그 규칙 (매우 중요):**
-    - 반드시 각 줄 시작에 [선생님]: 또는 [{speaker_b_label}]: 태그 사용
+    - 반드시 각 줄 시작에 「선생님」: 또는 「{speaker_b_label}」: 태그 사용
     - "진행자", "청취자", "호스트", "게스트" 같은 표현 절대 금지
-    - 태그 형식: [선생님]: ... 또는 [{speaker_b_label}]: ...
+    - 태그 형식: 「선생님」: ... 또는 「{speaker_b_label}」: ...
     - 다른 형식 사용 시 오류 발생
 
     **내용 규칙:**
     - 남은 예산: {remaining_budget}자 (±20%)
     - 대화 형식 유지
-    - 첫 줄은 반드시 [선생님]: 으로 시작
+    - 첫 줄은 반드시 「선생님」: 으로 시작
     - (아래에 학생 질문이 있으면) 반드시 그 질문에 대한 답변으로 시작
-    - 마지막 학생 질문이 존재하면, 반드시 [선생님]: 으로 그 질문에 대한 '직접적인 답'을 2~4문장으로 먼저 작성
-    - 마지막은 반드시 [선생님]이 격려+인사로 끝내기
+    - 마지막 학생 질문이 존재하면, 반드시 「선생님」: 으로 그 질문에 대한 '직접적인 답'을 2~4문장으로 먼저 작성
+    - 마지막은 반드시 「선생님」이 격려+인사로 끝내기
 
     **올바른 예시:**
-    [{speaker_b_label}]: 오늘 정말 유익했습니다!
-    [선생님]: 네, 잘 이해하셨네요. 다음 시간에 뵙겠습니다!
+    「{speaker_b_label}」: 오늘 정말 유익했습니다!
+    「선생님」: 네, 잘 이해하셨네요. 다음 시간에 뵙겠습니다!
 
     **잘못된 예시 (절대 금지):**
     청취자: 감사합니다
@@ -274,10 +368,19 @@ def hard_cap_fallback(
 
         closing_prompt += f"""
 
-    [참고: 마지막 부분]
+    **전체 내용 요약:**
+    {summary if summary else "(요약 없음 - 마지막 부분만 참고)"}
+
+    [참고: 마지막 대화]
     {truncated[-800:]}
 
-    [마무리 생성 - 반드시 [선생님]: 또는 [{speaker_b_label}]: 태그 사용]
+    **마무리 요구사항:**
+    - 전체 요약을 언급하며 핵심 정리
+    - 마지막 질문이 있으면 반드시 답변
+    - 격려 + 인사로 종료
+    - 반드시 「선생님」이 마지막 발화
+
+    [마무리 생성 - 반드시 「선생님」: 또는 「{speaker_b_label}」: 태그 사용]
     """.strip()
 
     else:
@@ -285,7 +388,7 @@ def hard_cap_fallback(
 다음은 강의의 일부입니다. 강의를 자연스럽게 완결하세요.
 
 - 남은 예산: {remaining_budget}자 (±20%)
-- 반드시 '[선생님]:' 형식 유지
+- 반드시 '「선생님」:' 형식 유지
 
 [참고: 마지막 부분]
 {truncated[-800:]}
@@ -304,8 +407,8 @@ def hard_cap_fallback(
             closing = get_default_closing(is_dialogue, last_speaker if is_dialogue else None, speaker_b_label=speaker_b_label)
 
         # 대화형이면 선생님으로 끝나는지 보정
-        if is_dialogue and not re.search(r"\[선생님\][^\[]*$", closing, re.DOTALL):
-            closing = closing.rstrip() + "\n[선생님]: 오늘 배운 내용을 잘 복습하시고, 다음 시간에 또 뵙겠습니다. 수고하셨습니다!"
+        if is_dialogue and not re.search(r"「선생님」[^\[]*$", closing, re.DOTALL):
+            closing = closing.rstrip() + "\n「선생님」: 오늘 배운 내용을 잘 복습하시고, 다음 시간에 또 뵙겠습니다. 수고하셨습니다!"
 
         return (truncated + "\n" + closing).strip()
 
@@ -323,7 +426,13 @@ def continue_script_fallback(
 ) -> str:
     is_dialogue = (style != "lecture")
     current_len = estimate_korean_chars_for_budget(script_text)
-    remaining_budget = max(0, budget - current_len)
+    
+    # ✅ 개선: 120% 여유 + 최소 200자 보장
+    # - budget * 1.2가 존치 최대치 (120%)
+    # - 최소 200자는 보장하여 이어쓰기 실패 방지
+    remaining_budget = max(200, int(budget * 1.2) - current_len)
+    
+    logger.info(f"[이어쓰기 예산] 현재: {current_len}자, 목표: {budget}자, 할당: {remaining_budget}자 (120% 여유)")
 
     if remaining_budget < 200:
         # ✅ 남은 예산이 적을수록 "미완 꼬리 + 클로징"이 되기 쉬움 → 꼬리 정리 후 클로징
@@ -342,8 +451,8 @@ def continue_script_fallback(
 
 **이어쓰기 규칙 (마무리가 없는 경우에만):**
 - 대화 형식 유지
-- 화자 태그는 줄 시작에만: [선생님]: / [{speaker_b_label}]:
-- 문장 중간에 [학생]님 금지
+- 화자 태그는 줄 시작에만: 「선생님」: / 「{speaker_b_label}」:
+- 문장 중간에 「학생」님 금지
 - teacher-student일 때만 선생님:학생 비율 7:3 근사 (teacher-teacher면 적용하지 않음)
 - 추가 분량은 약 {remaining_budget}자 이내 (±20%)
 - **마무리 인사를 중복하지 마세요**
@@ -363,7 +472,7 @@ def continue_script_fallback(
 3. 없다면 → 자연스럽게 이어서 마무리하세요
 
 **이어쓰기 규칙:**
-- 반드시 [선생님]: 형식 유지
+- 반드시 「선생님」: 형식 유지
 - 추가 분량은 약 {remaining_budget}자 이내 (±20%)
 
 [현재 마지막 부분]
@@ -390,6 +499,26 @@ def continue_script_fallback(
         if estimate_korean_chars_for_budget(cont) < 120:
             cont = get_default_closing(is_dialogue, speaker_b_label=speaker_b_label)
 
+        
+        # ✅ 중복 내용 체크 (스크립트 마지막과 이어쓰기 시작 비교)
+        if cont and len(cont) > 50:
+            # 스크립트 마지막 150자
+            last_150 = script_text.strip()[-150:]
+            # 이어쓰기 시작 150자
+            cont_150 = cont.strip()[:150]
+            
+            # 유사도 계산
+            similarity = SequenceMatcher(None, last_150, cont_150).ratio()
+            
+            if similarity > 0.7:
+                logger.warning(f"⚠️  이어쓰기 중복 감지 (유사도: {similarity:.1%})")
+                logger.warning(f"   스크립트 마지막: {last_150[:50]}...")
+                logger.warning(f"   이어쓰기 시작: {cont_150[:50]}...")
+                logger.warning(f"   → 중복 부분 제거")
+                
+                # 중복 부분 찾아서 제거 (첫 100자 스킵)
+                cont = cont[100:] if len(cont) > 100 else cont
+        
         return (script_text.rstrip() + "\n" + cont.lstrip()).strip()
 
     except Exception as e:
@@ -438,7 +567,7 @@ def expand_script_fallback(
    - 비유나 실생활 적용 사례
 
 **규칙**:
-- 대화 형식 유지: [선생님]/[{speaker_b_label}]
+- 대화 형식 유지: 「선생님」/「{speaker_b_label}」
 - teacher-student일 때만 선생님:학생 비율 7:3 (teacher-teacher면 적용하지 않음)
 - 논리적 흐름 유지
 - **기존 마무리는 그대로 유지** (마무리를 다시 작성하지 마세요)
@@ -462,7 +591,7 @@ def expand_script_fallback(
    - 심화 내용
 
 **규칙**:
-- [선생님]: 형식 유지
+- 「선생님」: 형식 유지
 - 논리적 흐름 유지
 - 기존 마무리는 그대로 유지
 
@@ -548,7 +677,7 @@ def expand_middle_content(
    - 학생의 심화 질문과 선생님의 답변
 
 **규칙**:
-- 대화 형식 유지: [선생님]/[{speaker_b_label}]
+- 대화 형식 유지: 「선생님」/「{speaker_b_label}」
 - 논리적 흐름 유지
 - teacher-student일 때만 선생님:학생 비율 7:3 (teacher-teacher면 적용하지 않음)
 
@@ -568,7 +697,7 @@ def expand_middle_content(
 2. 본론에 내용 추가: 더 자세한 설명, 예시 등
 
 **규칙**:
-- [선생님]: 형식 유지
+- 「선생님」: 형식 유지
 - 논리적 흐름 유지
 
 [확장할 본론]
